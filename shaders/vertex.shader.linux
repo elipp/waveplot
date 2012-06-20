@@ -1,0 +1,10 @@
+#version 120
+// linux version
+varying vec2 texcoord;
+
+void main(void) {
+
+	gl_Position = ftransform();
+	gl_TexCoord[0] = gl_MultiTexCoord0;
+
+}
