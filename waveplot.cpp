@@ -2,8 +2,8 @@
  * waveplot.cpp - main file for "waveplawt"
  * 
  * While the linux version uses SDL extensively, the windows edition uses the
- * Win32 API for window and OpenGL/device context creation (which, by the way,
- * was pretty much copy-pasted from NeHe). It also requires glew32.dll to work.
+ * Win32 API for window and OpenGL/device context creation. It also requires 
+ * glew32.dll to work.
  */
 
 
