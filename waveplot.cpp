@@ -28,13 +28,23 @@
 #include "shader.h"
 #include "text.h"
 
-#define WIN_W 800 
+#ifdef _WIN32
+
+#define WIN_W 1280 
+#define WIN_H 960
+
+#elif __linux__
+
+#define WIN_W 800
 #define WIN_H 600
 
-#define BUFSIZE 8096*2
+#endif
+
+#define BUFSIZE 65536
 #define BUFFER_OFFSET(i) (reinterpret_cast<void*>(i))
 
 #ifdef _WIN32
+
 static HGLRC hRC = NULL;
 static HDC hDC	  = NULL;
 static HWND hWnd = NULL;
@@ -43,9 +53,8 @@ static HINSTANCE hInstance;
 bool active=TRUE;
 bool fullscreen=FALSE;
 bool keys[256];
-
-
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);	// declare wndproc
+
 #endif
 
 /* 		GL_TRIANGLES SCHEMATIC:	(NEW!)
@@ -65,8 +74,6 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);	// declare wndproc
  *
  * */
 
-
-static float* black_GL_LINES;
 
 static float half_WIN_H = (float) WIN_H / 2.0;
 
@@ -127,13 +134,11 @@ bool texture::make_texture(const char* filename, GLint filter_flag) {
 			glGenTextures(1, &textureId);
             glBindTexture( GL_TEXTURE_2D, textureId);
             glTexImage2D( GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, imagedata);
-            glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter_flag );
-
+            
+			// GL_MIPMAP_* not accepted for filter_flag, since using it
+			// and not actually generating any mipmaps can result in unexpected behavior 
+			glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter_flag );
             glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter_flag );
-
-
-                        //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                        //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
 			delete [] buffer;
 
@@ -206,14 +211,7 @@ line make_line(float x1, float y1, float x2, float y2) {
 	y1 = (WIN_H - y1);
 	y2 = (WIN_H - y2);
 
-	/* in the context of this particular application, purely vertical lines will never 
-	 * be encountered (since dx = 1/f (> 0), where f represents sampling frequency.
-	 * However, dy may very well have a zero value, which is why the perp_slope calculation
-	 * needs a check. 										*/
-
-
 	double slope = dy/dx;
-
 	float angle = atan(slope);
 
 	float xparm = half_linewidth*sin(angle);	// in order to get the actual, rendered line width to match with the specified one,
@@ -229,52 +227,6 @@ line make_line(float x1, float y1, float x2, float y2) {
 
 }
 
-
-
-void oldline(float x1, float y1, float x2, float y2)
-{
-	double dx = (x2 - x1);
-	double dy = (y2 - y1);
-
-	y1 = (WIN_H - y1);
-	y2 = (WIN_H - y2);
-
-	/* in the context of this particular application, purely vertical lines will never 
-	 * be encountered (since dx = 1/f (> 0), where f represents sampling frequency.
-	 * However, dy may very well have a zero value, which is why the perp_slope calculation
-	 * needs a check. 										*/
-
-
-	double slope = dy/dx;
-	//double perp_slope;
-
-	//if (!horizontal)
-	//	perp_slope = -(dx/dy);
-
-	float angle = atan(slope);
-
-	float xparm = half_linewidth*sin(angle);		// in order to get the actual, rendered line width to match with the specified one,
-	float hxparm = xparm/2.0;			// these need a factor of 1/2.
-	float yparm = -half_linewidth*cos(angle);	// the minus is needed since in OpenGL the y-axis is inverted
-	float hyparm = yparm/2.0;
-
-
-
-
-//	if (slope > 0)
-//		xparm *= -1;	
-	
-	float vertexdata[16] = { x1-xparm,  y1+yparm,
-				 x2-xparm,  y2+yparm,
-				 x1-hxparm, y1+hyparm,
-				 x2-hxparm, y2+hyparm,
-				 x1+hxparm, y1-hyparm,
-				 x2+hxparm, y2-hyparm,
-				 x1+xparm,  y1-yparm,
-				 x2+xparm,  y2-yparm };
-
-
-}
 
 
 
@@ -429,7 +381,7 @@ void drawLines() {
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
 
-#elif __linux__	// this is because mesa only implements OpenGL up to 1.4
+#elif __linux__	// this is because mesa-7 only implements OpenGL up to 1.4
 	
 	glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
 	glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
@@ -454,7 +406,7 @@ void drawLines() {
 	
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
-	glDrawElements(GL_TRIANGLES, BUFSIZE, GL_UNSIGNED_INT, NULL);
+	glDrawElements(GL_TRIANGLES, BUFSIZE*2, GL_UNSIGNED_INT, NULL);
 	glPopMatrix();
 }
 
