@@ -1,16 +1,3 @@
 waveplawt:
 
-An OpenGL wav file waveform plotting program using smoothed line segments and indexed VBOs. 
-
-req 
-
-Windows: OpenGL >= 3.3 support is required (glVertexAttribPointer, shaders use GLSL 330)
-	- however, the program still uses the OpenGL matrix stack deprecated by the 3.0 spec,
-	  which is why the windows shaders shall be rewritten to 140 or 150 in the near future.
-
-Linux:
-	Only OpenGL <=1.4 calls are used, because the graphics adapter on my netbook (intel i915) 
-	only supports OpenGL up to version 1.4, where generic vertex attributes (glVertexAttribPointer)
-	aren't supported. Also requires libsdl.
-
-A test input file is provided, name asdfmono.wav.
+A personal project
