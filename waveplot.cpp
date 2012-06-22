@@ -286,7 +286,7 @@ bool InitGL()
 	{
 		/* Problem: glewInit failed, something is seriously wrong. */
 		fprintf(stderr, "Error: %s\n", glewGetErrorString(err));
-		return FALSE;
+		return false;
 	}
 	#endif
 
@@ -312,7 +312,7 @@ bool InitGL()
 
 	if (!(gradient_texture_valid && font_texture_valid)) {
 		printf("Failure loading textures.");
-		return FALSE;
+		return false;
 	}
 
 #ifdef _WIN32
@@ -357,7 +357,7 @@ bool InitGL()
 	    !checkShader(&VertexShaderId, GL_COMPILE_STATUS))
 	{
 		printf("Shader compile error. See shader.log\n");
-		return FALSE;
+		return false;
 	}
 	
 #ifdef _WIN32
@@ -372,9 +372,7 @@ bool InitGL()
 #endif
 	uniform_texture1_loc = glGetUniformLocation(programHandle, "texture_1");
 	
-	text1 = generateTextObject(std::string("1234567890000AEDIOFoifeaoijowaijoiaj fawoeifwe mina olen paskapaa :D:DDDD"), 500, 800);
-
-	return TRUE;
+	return false;
 }
 
 

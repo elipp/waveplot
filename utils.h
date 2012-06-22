@@ -1,6 +1,9 @@
 #ifndef UTILS_H
 #define UTILS_H
+
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <iostream>
 #include <fstream>
