@@ -5,6 +5,19 @@
 #include <cstring>
 #include <string>
 
+#ifdef _WIN32
+
+static const unsigned int WIN_W = 1280; 
+static const unsigned int WIN_H = 960;
+
+#elif __linux__
+
+static const unsigned int WIN_W = 800; 
+static const unsigned int WIN_H = 600;
+
+#endif
+
+
 
 struct WAVHEADERINFO {
 

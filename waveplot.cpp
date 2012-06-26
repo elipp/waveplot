@@ -1,7 +1,7 @@
 /* 
  * waveplot.cpp - main file for "waveplawt"
  * 
- * While the linux version uses SDL extensively, the windows edition uses the
+ * While the linux version uses SDL extensively, the windows edition uses the 
  * Win32 API for window and OpenGL/device context creation. It also requires 
  * glew32.dll to work.
  */
@@ -17,7 +17,7 @@
 
 #elif __linux__
 
-#define GL_GLEXT_PROTOTYPES
+#define GL_GLEXT_PROTOTYPES	// OpenGL extensions for Linux. Handled by GLEW on Windows
 #include <GL/gl.h>
 #include <GL/glu.h>
 #include <GL/glext.h>
@@ -36,20 +36,10 @@
 #include "definitions.h"
 #include "shader.h"
 #include "text.h"
+#include "slider.h"
 
-#ifdef _WIN32
+static const unsigned int BUFSIZE = 65536;
 
-#define WIN_W 1280 
-#define WIN_H 960
-
-#elif __linux__
-
-#define WIN_W 800
-#define WIN_H 600
-
-#endif
-
-#define BUFSIZE 65536
 #define BUFFER_OFFSET(i) (reinterpret_cast<void*>(i))
 
 #ifdef _WIN32
@@ -90,7 +80,7 @@ static float linewidth = 1.8;
 static float half_linewidth = linewidth/2.0;
 static float displacement = 0.0;
 
-static texture gradient_texture, font_texture;
+static texture gradient_texture, font_texture, slider_texture;
 
 static std::vector<line> lines;
 static std::vector<wpstring> strings;
@@ -100,7 +90,7 @@ static std::size_t displayrange_right = 8*WIN_W;
 
 static GLuint VertexShaderId, FragmentShaderId, programHandle, uniform_texture1_loc;
 
-static bufferObject waveData, text1;
+static bufferObject waveData, sliderData;
 
 static float zoom = 0.0;
 
@@ -129,9 +119,9 @@ bool texture::make_texture(const char* filename, GLint filter_flag) {
 
     if (header.width == header.height)
     {
-		if ((header.width & (header.width - 1)) == 0)   // if power of two
+	if ((header.width & (header.width - 1)) == 0)   // if power of two
         {
-                        // image is valid, carry on
+            // image is valid, carry on
             width = height = header.width;
             hasAlpha = header.bpp == 32 ? true : false;
 
@@ -139,7 +129,7 @@ bool texture::make_texture(const char* filename, GLint filter_flag) {
 
             GLbyte* imagedata = (GLbyte*)(buffer + 54);
 
-			glActiveTexture(GL_TEXTURE0);
+	    glActiveTexture(GL_TEXTURE0);
 			glGenTextures(1, &textureId);
             glBindTexture( GL_TEXTURE_2D, textureId);
             glTexImage2D( GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, imagedata);
@@ -153,8 +143,7 @@ bool texture::make_texture(const char* filename, GLint filter_flag) {
 
 			return true;
        }
-
-	}
+}
 	return false;
 
 }
@@ -239,18 +228,21 @@ line make_line(float x1, float y1, float x2, float y2) {
 
 
 
-void generateBufferObjects() {
+void generateWaveVBOs() {
 
 	glGenBuffers(1, &waveData.VBOid);
 	glBindBuffer(GL_ARRAY_BUFFER, waveData.VBOid);
-	glBufferData(GL_ARRAY_BUFFER, BUFSIZE*sizeof(line), &lines[0], GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, 4*BUFSIZE*sizeof(vertex), &lines[0], GL_STATIC_DRAW);
 
-	GLuint *indices = new GLuint[(6*BUFSIZE)];	// three indices per triangle, two triangles per line, BUFSIZE lines
+	const unsigned int num_indices = 6*BUFSIZE;
+
+	GLuint *indices = new GLuint[num_indices];	// three indices per triangle, two triangles per line, BUFSIZE lines
 
 	int i = 0;
 	int j = 0;
+
 	
-	while (i < 6 * BUFSIZE) {
+	while (i < num_indices) {
 
 		indices[i] = j;
 		indices[i+1] = j+1;
@@ -265,9 +257,48 @@ void generateBufferObjects() {
 
 	}
 
+	//debug
+
 	glGenBuffers(1, &waveData.IBOid);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, waveData.IBOid);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, 3*2*BUFSIZE*(sizeof(GLuint)), indices, GL_STATIC_DRAW);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, num_indices*(sizeof(GLuint)), indices, GL_STATIC_DRAW);
+
+	delete [] indices;
+
+
+}
+
+void generateSliderVBOs() {
+
+
+	const int slidercount = 11;
+	glGenBuffers(1, &sliderData.VBOid);
+	glBindBuffer(GL_ARRAY_BUFFER, sliderData.VBOid);
+	glBufferData(GL_ARRAY_BUFFER, 4*slidercount*sizeof(vertex), sliders, GL_STATIC_DRAW);
+
+	GLushort *indices = new GLushort[6*slidercount];	// three indices per triangle, two triangles per line, BUFSIZE lines
+
+	int i = 0;
+	int j = 0;
+	
+	while (i < 6*slidercount) {
+
+		indices[i] = j;
+		indices[i+1] = j+1;
+		indices[i+2] = j+3;
+		indices[i+3] = j+1;
+		indices[i+4] = j+2;
+		indices[i+5] = j+3;
+
+		i += 6;
+		j += 4;
+
+
+	}
+
+	glGenBuffers(1, &sliderData.IBOid);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sliderData.IBOid);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, 3*2*BUFSIZE*(sizeof(GLushort)), indices, GL_STATIC_DRAW);
 
 	delete [] indices;
 
@@ -309,8 +340,9 @@ bool InitGL()
 
 	bool gradient_texture_valid = gradient_texture.make_texture("textures/texture.bmp", GL_LINEAR);
 	bool font_texture_valid = font_texture.make_texture("textures/dina_all.bmp", GL_NEAREST);
+	bool slider_texture_valid = slider_texture.make_texture("textures/slider.bmp", GL_NEAREST);
 
-	if (!(gradient_texture_valid && font_texture_valid)) {
+	if (!(gradient_texture_valid && font_texture_valid && slider_texture_valid)) {
 		printf("Failure loading textures.");
 		return false;
 	}
@@ -325,7 +357,6 @@ bool InitGL()
 
 #endif
 	
-	printf("%s\n", vshadername);
 	GLchar* vert_shader = readShaderFromFile(vshadername);
    	GLchar* frag_shader = readShaderFromFile(fshadername);
 
@@ -371,14 +402,59 @@ bool InitGL()
 
 #endif
 	uniform_texture1_loc = glGetUniformLocation(programHandle, "texture_1");
-	
-	return false;
+
+	generateWaveVBOs();
+	generateSliderVBOs();
+
+	GLenum err = glGetError();
+
+	if (err != GL_NO_ERROR) {
+		
+#ifdef _WIN32
+		printf("gl error detected. Error code: %d", (int)err);
+#elif __linux__
+		std::cout << "gl error detected. Error code: " << (int) err;
+#endif
+		return false;
+
+	}
+
+	return true;
 }
 
 
-void drawLines() {
+void drawSliders() {
 
-	glClear(GL_COLOR_BUFFER_BIT);
+	glBindBuffer(GL_ARRAY_BUFFER, sliderData.VBOid);
+
+#ifdef _WIN32
+
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
+
+#elif __linux__	// intel i915 only supports OpenGL up to 1.4 (mesa 8)
+	
+	glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
+	glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
+
+#endif
+	glUniform1i(uniform_texture1_loc, 0);
+
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+
+	glOrtho(0.0, WIN_W, WIN_H, 0.0, 0.0, 1.0);
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sliderData.IBOid);
+	glUseProgram(programHandle);
+	
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, slider_texture.textureId);
+	glDrawElements(GL_TRIANGLES, 11*2, GL_UNSIGNED_SHORT, NULL);
+
+}
+
+void drawWave() {
 
 	
 	glBindBuffer(GL_ARRAY_BUFFER, waveData.VBOid);
@@ -388,7 +464,7 @@ void drawLines() {
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
 
-#elif __linux__	// this is because mesa-7 only implements OpenGL up to 1.4
+#elif __linux__	// intel i915 only supports OpenGL up to 1.4 (mesa 8)
 	
 	glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
 	glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
@@ -418,11 +494,20 @@ void drawLines() {
 }
 
 
-void drawText(std::vector<wpstring>& text) {
+void drawText() {
 
-	std::vector<wpstring>::const_iterator iter = text.begin();
+	static std::vector<wpstring>::const_iterator iter = strings.begin();
 
-	while(iter != text.end()) {
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glOrtho(0.0, WIN_W, WIN_H, 0.0, 0.0, 1.0);
+
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	
+	while(iter != strings.end()) {
 
 		glBindBuffer(GL_ARRAY_BUFFER, (*iter).bufObj.VBOid);
 #ifdef _WIN32
@@ -435,15 +520,6 @@ void drawText(std::vector<wpstring>& text) {
 #endif
 		glUniform1i(uniform_texture1_loc, 0);
 
-		glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glLoadIdentity();
-		glOrtho(0.0, WIN_W, WIN_H, 0.0, 0.0, 1.0);
-
-		glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
-	
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (*iter).bufObj.IBOid);
 		glUseProgram(programHandle);
 	
@@ -451,11 +527,24 @@ void drawText(std::vector<wpstring>& text) {
 		glBindTexture(GL_TEXTURE_2D, font_texture.textureId);
 
 		glDrawElements(GL_TRIANGLES, 6*(*iter).length, GL_UNSIGNED_SHORT, NULL);
-		glPopMatrix();
-		glMatrixMode(GL_PROJECTION);
-		glPopMatrix();
 		++iter;
 	}
+
+	glPopMatrix();
+
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	
+}
+
+inline void draw() {
+
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	drawWave();
+	drawText();
+	drawSliders();
+
 }
 
 #ifdef _WIN32
@@ -737,11 +826,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	int running=1;
 
 	const char* filename = "asdfmono.wav";
-	strings.push_back(wpstring(std::string("kikkeleita"), 75, 700));
-	strings.push_back(wpstring(std::string("perkele"), 50, 100));
-	strings.push_back(wpstring(std::string("JUMALAUTASAROSIJAIRJAEOTIrgijsroiawjrg;oairjg;oirajw  "), 500, 100));
-	strings.push_back(wpstring(std::string("KAKELI XDD 3003100"), 50, 400));
+	
+	std::string string1 = std::string("Filename: ") + std::string(filename);
 
+	strings.push_back(wpstring(string1, 15, 15));
+	
 	std::ifstream input(filename, std::ios::binary);
 
 	if (!input.is_open()) {	
@@ -762,8 +851,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	}
 
 	delete [] samples;
+
 	
-	generateBufferObjects();
 
 	while(!done)
 	{
@@ -803,8 +892,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 					keys[VK_LEFT] = false;
 				}
 
-				drawLines();
-				drawText(strings);
+				draw();
 				SwapBuffers(hDC);
 
 			}
@@ -869,19 +957,18 @@ int main(int argc, char *argv[])
 		std::cout << "Couldn't create SDL window.";
 		return 1;
 	}
-
-	InitGL();
-
+	
 	std::string string1 = std::string("Filename: ") + std::string(filename);
-	std::string string2 = std::string("abcdhijklmnopqrstuvxyzABCDEFGHIJLKMNOPQRSTUVXYZ!@#$%^&*()");
-	std::string string3 = std::string("opqrstuvwxyz");
-
 	strings.push_back(wpstring(string1, 15, 15));
-	strings.push_back(wpstring(string2, 15, 500));
-	strings.push_back(wpstring(string3, 15, 550));
 
-	drawLines();
-	drawText(strings);
+	if(!InitGL()) {
+
+		std::cout << "InitGL failed.\n";
+		return 1;
+
+	}
+	
+	draw();
 	SDL_GL_SwapBuffers();
 
 	while(running)
@@ -904,26 +991,22 @@ int main(int argc, char *argv[])
 
 						case SDLK_UP:
 							zoomIn();
-							drawLines();
-							drawText(strings);
+							draw();
 							SDL_GL_SwapBuffers();
 							break;
 						case SDLK_DOWN:
 							zoomOut();
-							drawLines();
-							drawText(strings);
+							draw();
 							SDL_GL_SwapBuffers();
 							break;
 						case SDLK_LEFT:
 							translateLeft();
-							drawLines();
-							drawText(strings);
+							draw();
 							SDL_GL_SwapBuffers();
 							break;
 						case SDLK_RIGHT:
 							translateRight();
-							drawLines();
-							drawText(strings);
+							draw();
 							SDL_GL_SwapBuffers();
 							break;
 						default:

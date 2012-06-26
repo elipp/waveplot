@@ -21,7 +21,7 @@ bufferObject generateTextObject(std::string& text, GLuint x, GLuint y) {
 
 	float a;
 	
-	int i = 0,j = 0, ij = 0;
+	unsigned int i = 0,j = 0, ij = 0;
 
 	for (; i < str_len; i++) {
 		a = i * 7.0;	// the distance between two consecutive letters.
