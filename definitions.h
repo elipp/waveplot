@@ -5,6 +5,11 @@
 #include <cstring>
 #include <string>
 
+#ifndef M_PI
+#define M_PI 3.14159265
+#endif
+
+
 #ifdef _WIN32
 
 static const unsigned int WIN_W = 1280; 
@@ -16,6 +21,8 @@ static const unsigned int WIN_W = 800;
 static const unsigned int WIN_H = 600;
 
 #endif
+
+static const float aspect_ratio = WIN_W/WIN_H;
 
 
 
@@ -71,7 +78,7 @@ struct texture {
 
 
 
-struct vertex {
+struct vertex {		// user defined constructors -> not aggregate
 
 	float x,y;
 	float u,v;
@@ -87,6 +94,15 @@ struct line {
 };
 
 typedef line glyph;
+
+struct triangle {
+
+	vertex v1;
+	vertex v2;
+	vertex v3;
+
+};
+
 
 struct bufferObject {
 

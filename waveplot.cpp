@@ -1,5 +1,5 @@
 /* 
- * waveplot.cpp - main file for "waveplawt"
+ * waveplot.cpp - main file for "waveplot"
  * 
  * While the linux version uses SDL extensively, the windows edition uses the 
  * Win32 API for window and OpenGL/device context creation. It also requires 
@@ -24,6 +24,8 @@
 #include <SDL/SDL.h>
 
 #endif
+
+#include <CL/cl.h>	// OpenCL =)
 
 #include <cstdio>
 #include <iostream>
@@ -90,7 +92,7 @@ static std::size_t displayrange_right = 8*WIN_W;
 
 static GLuint VertexShaderId, FragmentShaderId, programHandle, uniform_texture1_loc;
 
-static bufferObject waveData, sliderData;
+static bufferObject waveData, sliderData, waveDataVAO;
 
 static float zoom = 0.0;
 
@@ -109,41 +111,41 @@ bool texture::make_texture(const char* filename, GLint filter_flag) {
 	input.read(buffer, filesize);
 	input.close();
 
-    char* iter = buffer + 2;        // the first two bytes are 'B' and 'M'
+	char* iter = buffer + 2;        // the first two bytes are 'B' and 'M'
 
-    BMPHEADERINFO header;
+	BMPHEADERINFO header;
 
-    memcpy(&header, iter, sizeof(header));
+	memcpy(&header, iter, sizeof(header));
 
-        // validate image OpenGL-wise
+	// validate image OpenGL-wise
 
-    if (header.width == header.height)
-    {
-	if ((header.width & (header.width - 1)) == 0)   // if power of two
-        {
-            // image is valid, carry on
-            width = height = header.width;
-            hasAlpha = header.bpp == 32 ? true : false;
+	if (header.width == header.height)
+	{
+		if ((header.width & (header.width - 1)) == 0)   // if power of two
+		{
+			// image is valid, carry on
+			width = height = header.width;
+			hasAlpha = header.bpp == 32 ? true : false;
 
-                        // read actual image data to buffer.
+			// read actual image data to buffer.
 
-            GLbyte* imagedata = (GLbyte*)(buffer + 54);
+			GLbyte* imagedata = (GLbyte*)(buffer + 54);
 
-	    glActiveTexture(GL_TEXTURE0);
+			glActiveTexture(GL_TEXTURE0);
 			glGenTextures(1, &textureId);
-            glBindTexture( GL_TEXTURE_2D, textureId);
-            glTexImage2D( GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, imagedata);
-            
+			glBindTexture( GL_TEXTURE_2D, textureId);
+			glTexImage2D( GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, imagedata);
+
 			// GL_MIPMAP_* not accepted for filter_flag, since using it
 			// and not actually generating any mipmaps can result in unexpected behavior 
 			glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter_flag );
-            glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter_flag );
+			glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter_flag );
 
 			delete [] buffer;
 
 			return true;
-       }
-}
+		}
+	}
 	return false;
 
 }
@@ -175,7 +177,7 @@ void translateLeft() {
 	displacement -= 5.0;
 
 	if (!(displacement > 0.0 && displayrange_left == 0)) { 
-		
+
 		displayrange_left += 40;
 
 	}
@@ -202,7 +204,7 @@ void translateRight() {
 
 line make_line(float x1, float y1, float x2, float y2) {
 
-	line line;
+	line ret_line;
 	double dx = (x2 - x1);
 	double dy = (y2 - y1);
 
@@ -212,17 +214,138 @@ line make_line(float x1, float y1, float x2, float y2) {
 	double slope = dy/dx;
 	float angle = atan(slope);
 
-	float xparm = half_linewidth*sin(angle);	// in order to get the actual, rendered line width to match with the specified one,
+	float xparm = half_linewidth*sin(angle);	// in order to get the actual, rendered ret_line width to match with the specified one,
 	float yparm = -half_linewidth*cos(angle);	// the minus is needed since in OpenGL the y-axis is inverted
-				    
+
 	//			    x         y        u    v
-	line.vertices[0] = vertex(x1-xparm, y1+yparm, 0.0, 0.0);
-	line.vertices[1] = vertex(x1+xparm, y1-yparm, 0.0, 1.0);
-	line.vertices[2] = vertex(x2+xparm, y2-yparm, 1.0, 1.0);
-	line.vertices[3] = vertex(x2-xparm, y2+yparm, 1.0, 0.0);
+	ret_line.vertices[0] = vertex(x1-xparm, y1+yparm, 0.0, 0.0);
+	ret_line.vertices[1] = vertex(x1+xparm, y1-yparm, 0.0, 1.0);
+	ret_line.vertices[2] = vertex(x2+xparm, y2-yparm, 1.0, 1.0);
+	ret_line.vertices[3] = vertex(x2-xparm, y2+yparm, 1.0, 0.0);
 
-	return line;
+	return ret_line;
 
+}
+
+GLuint generateWaveVAO(triangle* triangles, std::size_t samplecount) {
+
+	const std::size_t trianglecount = (2*samplecount-1);
+
+	glGenBuffers(1, &waveDataVAO.VBOid);
+	glBindBuffer(GL_ARRAY_BUFFER, waveDataVAO.VBOid);
+	glBufferData(GL_ARRAY_BUFFER, (trianglecount)*sizeof(triangle), triangles, GL_STATIC_DRAW);
+
+	waveDataVAO.IBOid = -1;	// not used
+
+}
+
+/*
+ * The bakeWaveVertexArray compiles a vertex array of triangle primitives
+ * from the input sample data. Rationale:
+ *
+ * 1) the i915 (Intel GMA) mesa OpenGL-driver apparently doesn't 
+ * support GL_UNSIGNED_INT as its index format specifier,
+ *
+ * 2) the line segments currently share no common vertices (due to poor design),
+ * 	- the index buffers obey a strict, predictable sequence. 
+ *
+ * 3) and glDrawArrays supports rendering by range 
+ *
+ * this was chosen as the linux implementation. The windows glDrawElements
+ * implementation  shall be revamped shortly (to support smooth
+ * line segment seams, and thus shared vertices as well)
+ *
+ *
+ * NOTE: as the additional, "smoothing" adjustments (k -> kx, ky) have been introduced,
+ * this has become computationally intensive. Consider implementing it in OpenCL.
+ */
+
+triangle* bakeWaveVertexArray(float* samples, const std::size_t& samplecount) {
+
+	const std::size_t triangle_count = (samplecount-1)*2;
+	triangle* triangles = new triangle[triangle_count];	// shall be returned as vertex*
+	const float step = 1.0/8.0;
+	float tmpx = 0.0;
+
+
+	// The first and the last triangles are different from the rest, as they don't have a pair
+
+	float x1 = tmpx;
+	float y1 = half_WIN_H*samples[0];
+
+	float x2 = tmpx + step;
+	float y2 = half_WIN_H*samples[1];
+
+	float x3 = x2 + step;
+	float y3 = half_WIN_H*samples[2];
+
+//	y1 = (WIN_H - y1);	// consider these
+//	y2 = (WIN_H - y2);
+	
+	float alpha = atan(step/(y2-y1));
+	float beta = atan(step/(y3-y2));
+
+	float xparm = half_linewidth*cos(alpha);	// in order to get the actual, rendered ret_line width to match with the specified one,
+	float yparm = -half_linewidth*sin(alpha);	// the minus is needed since in OpenGL the y-axis is inverted
+
+	float gamma_over_2 = 0.5*(M_PI - alpha - beta);
+
+	float k = half_linewidth*tan(gamma_over_2);
+
+	float kx = k*cos(alpha);
+	float ky = -k*sin(alpha);			// this too (OpenGL y-axis)
+
+	// lines.push_back(make_line(tmpx, half_WIN_H*samples[i] + WIN_H, tmpx + step, half_WIN_H*samples[i+1] +  WIN_H));
+	
+	triangles[0].v1 = vertex(x2-xparm+kx, y2 - yparm - ky, 1.0, 0.0);
+	triangles[0].v2 = vertex(x2+xparm-kx, y2 + yparm + ky, 1.0, 1.0);
+	triangles[0].v3 = vertex(x1, y1, 0.0, 0.5);
+
+	tmpx += step;
+
+	for (int i = 1; i < samplecount;) 
+	{
+
+		x1 = tmpx;
+		y1 = half_WIN_H*samples[i];
+		x2 = tmpx + step;
+		y2 = half_WIN_H*samples[i+1];
+		x3 = x2 + step;
+		y3 = half_WIN_H*samples[i+2];
+
+		alpha = atan(step/(y2-y1));
+		beta = atan(step/(y3-y2));
+
+		xparm = half_linewidth*cos(alpha);
+		yparm = -half_linewidth*sin(alpha);	// the minus is needed since in OpenGL the y-axis is inverted
+		gamma_over_2 = 0.5*(M_PI - alpha - beta);
+
+		k = half_linewidth*tan(gamma_over_2);
+
+		kx = k*cos(alpha);
+		ky = -k*sin(alpha);			// this too has a minus (OpenGL y-axis)
+
+		triangles[i].v1 = triangles[i-1].v2;	// TODO: provide array schematic
+		triangles[i].v2 = triangles[i-1].v1;
+		triangles[i].v3 = vertex(x2+xparm, y2-yparm, 1.0, 1.0);
+
+
+		triangles[i+1].v1 = vertex(x2-xparm+kx, y2-yparm-ky, 1.0, 0.0);
+		triangles[i+1].v2 = triangles[i].v3;
+		triangles[i+1].v3 = triangles[i].v2;
+
+		tmpx += step;
+
+		i += 2;
+
+	}
+	// as stated above, the last triangle is also different
+
+	triangles[triangle_count-1].v1 = triangles[triangle_count-2].v2;	
+	triangles[triangle_count-1].v2 = triangles[triangle_count-2].v1;	
+	triangles[triangle_count-1].v3 = vertex(tmpx+step, half_WIN_H*samples[samplecount-1], 1.0, 0.5);
+
+	return triangles;
 }
 
 
@@ -241,7 +364,7 @@ void generateWaveVBOs() {
 	int i = 0;
 	int j = 0;
 
-	
+
 	while (i < num_indices) {
 
 		indices[i] = j;
@@ -280,7 +403,7 @@ void generateSliderVBOs() {
 
 	int i = 0;
 	int j = 0;
-	
+
 	while (i < 6*slidercount) {
 
 		indices[i] = j;
@@ -309,8 +432,8 @@ void generateSliderVBOs() {
 
 bool InitGL()
 {
-	
-	#ifdef _WIN32
+
+#ifdef _WIN32
 	GLenum err = glewInit();
 
 	if (GLEW_OK != err)
@@ -319,7 +442,7 @@ bool InitGL()
 		fprintf(stderr, "Error: %s\n", glewGetErrorString(err));
 		return false;
 	}
-	#endif
+#endif
 
 	glClearColor(1.0, 1.0, 1.0, 1.0);
 	glDisable(GL_DEPTH_TEST);
@@ -333,7 +456,7 @@ bool InitGL()
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 	//glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
-	
+
 	const char* version = (const char*) glGetString(GL_VERSION);
 
 	printf("\nOpenGL version information:\n%s\n\n", version);
@@ -354,43 +477,42 @@ bool InitGL()
 #elif __linux__
 	const char* vshadername = "shaders/vertex.shader.linux";
 	const char* fshadername = "shaders/fragment.shader.linux";
-
 #endif
-	
+
 	GLchar* vert_shader = readShaderFromFile(vshadername);
-   	GLchar* frag_shader = readShaderFromFile(fshadername);
+	GLchar* frag_shader = readShaderFromFile(fshadername);
 
 	GLint vlen = strlen(vert_shader);
-    GLint flen = strlen(frag_shader);
+	GLint flen = strlen(frag_shader);
 
 	VertexShaderId = glCreateShader(GL_VERTEX_SHADER);
-    FragmentShaderId = glCreateShader(GL_FRAGMENT_SHADER);
+	FragmentShaderId = glCreateShader(GL_FRAGMENT_SHADER);
 
-    glShaderSource(VertexShaderId, 1, (const GLchar**)&vert_shader, &vlen);
-    glShaderSource(FragmentShaderId, 1, (const GLchar**)&frag_shader,&flen);
+	glShaderSource(VertexShaderId, 1, (const GLchar**)&vert_shader, &vlen);
+	glShaderSource(FragmentShaderId, 1, (const GLchar**)&frag_shader,&flen);
 
-    glCompileShader(VertexShaderId);
-    glCompileShader(FragmentShaderId);
+	glCompileShader(VertexShaderId);
+	glCompileShader(FragmentShaderId);
 
 
 	programHandle = glCreateProgram();
 
-    glAttachShader(programHandle, VertexShaderId);
-    glAttachShader(programHandle, FragmentShaderId);
+	glAttachShader(programHandle, VertexShaderId);
+	glAttachShader(programHandle, FragmentShaderId);
 
-    glLinkProgram(programHandle);
-    glUseProgram(programHandle);
+	glLinkProgram(programHandle);
+	glUseProgram(programHandle);
 
 	delete [] vert_shader;
 	delete [] frag_shader;
 
-    if (!checkShader(&FragmentShaderId, GL_COMPILE_STATUS) ||
-	    !checkShader(&VertexShaderId, GL_COMPILE_STATUS))
+	if (!checkShader(&FragmentShaderId, GL_COMPILE_STATUS) ||
+			!checkShader(&VertexShaderId, GL_COMPILE_STATUS))
 	{
 		printf("Shader compile error. See shader.log\n");
 		return false;
 	}
-	
+
 #ifdef _WIN32
 
 	glBindAttribLocation(programHandle, 0, "in_position");
@@ -409,7 +531,7 @@ bool InitGL()
 	GLenum err = glGetError();
 
 	if (err != GL_NO_ERROR) {
-		
+
 #ifdef _WIN32
 		printf("gl error detected. Error code: %d", (int)err);
 #elif __linux__
@@ -433,7 +555,7 @@ void drawSliders() {
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
 
 #elif __linux__	// intel i915 only supports OpenGL up to 1.4 (mesa 8)
-	
+
 	glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
 	glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
 
@@ -447,7 +569,7 @@ void drawSliders() {
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sliderData.IBOid);
 	glUseProgram(programHandle);
-	
+
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, slider_texture.textureId);
 	glDrawElements(GL_TRIANGLES, 11*2, GL_UNSIGNED_SHORT, NULL);
@@ -456,16 +578,16 @@ void drawSliders() {
 
 void drawWave() {
 
-	
+
 	glBindBuffer(GL_ARRAY_BUFFER, waveData.VBOid);
-	
+
 #ifdef _WIN32
 
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
 
 #elif __linux__	// intel i915 only supports OpenGL up to 1.4 (mesa 8)
-	
+
 	glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
 	glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
 
@@ -475,10 +597,9 @@ void drawWave() {
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 
-	static float aspect_ratio = WIN_W/WIN_H;
 
 	glOrtho(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), 0.0f, 1.0f);
-	
+
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	glLoadIdentity();
@@ -486,13 +607,47 @@ void drawWave() {
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, waveData.IBOid);
 	glUseProgram(programHandle);
-	
+
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
 	glDrawElements(GL_TRIANGLES, BUFSIZE*2, GL_UNSIGNED_INT, NULL);
 	glPopMatrix();
 }
 
+
+void drawWaveVAO() {
+
+	glBindBuffer(GL_ARRAY_BUFFER, waveDataVAO.VBOid); 
+
+
+	glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
+	
+	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	glUniform1i(uniform_texture1_loc, 0);
+
+	glMatrixMode(GL_PROJECTION);
+	
+	glOrtho(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), 0.0f, 1.0f);
+
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glTranslatef(displacement, 0.0, 0.0);
+
+	glUseProgram(programHandle);
+
+	glActiveTexture(GL_TEXTURE0);
+	glClientActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
+	glDrawArrays(GL_TRIANGLES, 0, 30000);
+	glPopMatrix();
+
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+
+}
 
 void drawText() {
 
@@ -506,7 +661,7 @@ void drawText() {
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	glLoadIdentity();
-	
+
 	while(iter != strings.end()) {
 
 		glBindBuffer(GL_ARRAY_BUFFER, (*iter).bufObj.VBOid);
@@ -522,7 +677,7 @@ void drawText() {
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (*iter).bufObj.IBOid);
 		glUseProgram(programHandle);
-	
+
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, font_texture.textureId);
 
@@ -534,14 +689,15 @@ void drawText() {
 
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
-	
+
 }
 
 inline void draw() {
 
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	drawWave();
+	//drawWave();
+	drawWaveVAO();
 	drawText();
 	drawSliders();
 
@@ -631,25 +787,25 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 	/*
 	 * no need to test this now that fullscreen is turned off
 	 *
-	if (ChangeDisplaySettings(&dmScreenSettings, CDS_FULLSCREEN) != DISP_CHANGE_SUCCESSFUL)
-	{
-		if (MessageBox(NULL, "The requested fullscreen mode is not supported by\nyour video card. Use Windowed mode instead?", "warn", MB_YESNO | MB_ICONEXCLAMATION)==IDYES)
-		{
-			fullscreen=FALSE;
-		}
-		else {
+	 if (ChangeDisplaySettings(&dmScreenSettings, CDS_FULLSCREEN) != DISP_CHANGE_SUCCESSFUL)
+	 {
+	 if (MessageBox(NULL, "The requested fullscreen mode is not supported by\nyour video card. Use Windowed mode instead?", "warn", MB_YESNO | MB_ICONEXCLAMATION)==IDYES)
+	 {
+	 fullscreen=FALSE;
+	 }
+	 else {
 
-			MessageBox(NULL, "Program willl now close.", "ERROR", MB_OK|MB_ICONSTOP);
-			return FALSE;
-		}
-	}*/
+	 MessageBox(NULL, "Program willl now close.", "ERROR", MB_OK|MB_ICONSTOP);
+	 return FALSE;
+	 }
+	 }*/
 
 	ShowCursor(TRUE);
 	if (fullscreen)
 	{
 		dwExStyle=WS_EX_APPWINDOW;
 		dwStyle=WS_POPUP;
-	
+
 	}
 
 	else {
@@ -660,14 +816,14 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 	AdjustWindowRectEx(&WindowRect, dwStyle, FALSE, dwExStyle);
 
 	if(!(hWnd=CreateWindowEx( dwExStyle, "OpenGL", title,
-							  WS_CLIPSIBLINGS | WS_CLIPCHILDREN | dwStyle,
-							  0, 0,
-							  WindowRect.right-WindowRect.left,
-							  WindowRect.bottom-WindowRect.top,
-							  NULL,
-							  NULL,
-							  hInstance,
-							  NULL)))
+					WS_CLIPSIBLINGS | WS_CLIPCHILDREN | dwStyle,
+					0, 0,
+					WindowRect.right-WindowRect.left,
+					WindowRect.bottom-WindowRect.top,
+					NULL,
+					NULL,
+					hInstance,
+					NULL)))
 	{
 		KillGLWindow();
 		MessageBox(NULL, "window creation error.", "ERROR", MB_OK|MB_ICONEXCLAMATION);
@@ -750,48 +906,48 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch(uMsg)
 	{
-	case WM_ACTIVATE:
-		if(!HIWORD(wParam))
-		{
-			active=TRUE;
-		}
+		case WM_ACTIVATE:
+			if(!HIWORD(wParam))
+			{
+				active=TRUE;
+			}
 
-		else 
-		{
-			active=FALSE;
-		}
-		return 0;
+			else 
+			{
+				active=FALSE;
+			}
+			return 0;
 
-	case WM_SYSCOMMAND:
-		switch(wParam)
-		{
-		case SC_SCREENSAVE:
-		case SC_MONITORPOWER:
-			return 0;
-		}
-		break;
-	
-	case WM_CLOSE:
-		{
-		PostQuitMessage(0);
-		return 0;
-		}
+		case WM_SYSCOMMAND:
+			switch(wParam)
+			{
+				case SC_SCREENSAVE:
+				case SC_MONITORPOWER:
+					return 0;
+			}
+			break;
 
-	case WM_KEYDOWN:
-		{
-			keys[wParam]=TRUE;
-			return 0;
-		}
-	case WM_KEYUP:
-		{
-			keys[wParam]=FALSE;
-			return 0;
-		}
-	case WM_SIZE:
-		{
-			//ResizeGLScene(LOWORD(lParam), HIWORD(lParam));
-		}
-	;
+		case WM_CLOSE:
+			{
+				PostQuitMessage(0);
+				return 0;
+			}
+
+		case WM_KEYDOWN:
+			{
+				keys[wParam]=TRUE;
+				return 0;
+			}
+		case WM_KEYUP:
+			{
+				keys[wParam]=FALSE;
+				return 0;
+			}
+		case WM_SIZE:
+			{
+				//ResizeGLScene(LOWORD(lParam), HIWORD(lParam));
+			}
+			;
 	}
 
 	/* the rest shall be passed to defwindowproc. (default window procedure) */
@@ -807,9 +963,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	/* allocate console for debug output (only works with printf doe) */
 
 	if(AllocConsole()) {
-    freopen("CONOUT$", "wt", stdout);
-    SetConsoleTitle("debug output");
-    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_RED);
+		freopen("CONOUT$", "wt", stdout);
+		SetConsoleTitle("debug output");
+		SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_RED);
 	}
 
 
@@ -819,18 +975,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	fullscreen=FALSE;
 
 	if (!CreateGLWindow("waveplot", WIN_W, WIN_H, 32, FALSE)) {
-			return 1;
+		return 1;
 	}
 
-	
+
 	int running=1;
 
 	const char* filename = "asdfmono.wav";
-	
+
 	std::string string1 = std::string("Filename: ") + std::string(filename);
 
 	strings.push_back(wpstring(string1, 15, 15));
-	
+
 	std::ifstream input(filename, std::ios::binary);
 
 	if (!input.is_open()) {	
@@ -839,7 +995,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	}
 
-	float *samples = readSampleData_int16(input);	// presuming 16-bit, little endian
+	std::size_t num_samples;
+	float *samples = readSampleData_int16(input, &num_samples);	// presuming 16-bit, little endian
+
+	triangle *triangles = bakeWaveVertexArray(samples, num_samples);
+
+	delete [] triangles;
 
 	float tmpx = 0.0;
 	static float step = 0.125;
@@ -852,7 +1013,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	delete [] samples;
 
-	
+
 
 	while(!done)
 	{
@@ -939,7 +1100,11 @@ int main(int argc, char *argv[])
 
 	}
 
-	float *samples = readSampleData_int16(input);	// presuming 16-bit, little endian
+	std::size_t num_samples;
+
+	float *samples = readSampleData_int16(input, &num_samples);	// presuming 16-bit, little endian
+
+	triangle* triangles = bakeWaveVertexArray(samples, num_samples);
 
 	float tmpx = 0.0;
 	static float step = 0.125;
@@ -951,13 +1116,13 @@ int main(int argc, char *argv[])
 	}
 
 	delete [] samples;
-	
+
 	SDL_Surface *screen = createSDLWindow();
 	if (!screen) {
 		std::cout << "Couldn't create SDL window.";
 		return 1;
 	}
-	
+
 	std::string string1 = std::string("Filename: ") + std::string(filename);
 	strings.push_back(wpstring(string1, 15, 15));
 
@@ -967,7 +1132,11 @@ int main(int argc, char *argv[])
 		return 1;
 
 	}
-	
+
+	generateWaveVAO(triangles, num_samples);
+
+	delete [] triangles;
+
 	draw();
 	SDL_GL_SwapBuffers();
 
@@ -982,7 +1151,7 @@ int main(int argc, char *argv[])
 					break;
 
 				case SDL_KEYDOWN:
-					
+
 					switch(event.key.keysym.sym)
 					{
 						case SDLK_ESCAPE:
@@ -1012,15 +1181,15 @@ int main(int argc, char *argv[])
 						default:
 							;
 					}
-				break;
-			
+					break;
+
 				default:
 					break;
 			} 
-	
-			
+
+
 		}
-	
+
 	}
 
 	SDL_Quit();

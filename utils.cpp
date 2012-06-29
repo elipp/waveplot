@@ -10,10 +10,11 @@ std::size_t cpp_getfilesize(std::ifstream& input) {
 
 }
 
-float* readSampleData_int16(std::ifstream& input) {
+float* readSampleData_int16(std::ifstream& input, std::size_t* const num_samples) {
 
         std::size_t filesize = cpp_getfilesize(input);
         const std::size_t numsamples = (filesize-44)/2;
+	*num_samples = numsamples;	// acts as the second return value
         short *sampledata = new short[numsamples];
 
         input.seekg(44, std::ios::beg); // perhaps redundant, but better to be sure
