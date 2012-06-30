@@ -25,7 +25,6 @@ static const unsigned int WIN_H = 600;
 static const float aspect_ratio = WIN_W/WIN_H;
 
 
-
 struct WAVHEADERINFO {
 
         char padding[4];        // 4

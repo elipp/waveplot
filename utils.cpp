@@ -28,7 +28,7 @@ float* readSampleData_int16(std::ifstream& input, std::size_t* const num_samples
 
         float *samples = new float[numsamples];
 
-        for (int i = 0; i < numsamples; i++) {
+        for (unsigned int i = 0; i < numsamples; i++) {
                 samples[i] = ((float)(sampledata[i]) / middle) - 1.0;
 		//std::cout << sampledata[i] << " ";
         }

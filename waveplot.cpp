@@ -40,7 +40,7 @@
 #include "text.h"
 #include "slider.h"
 
-static const unsigned int BUFSIZE = 65536;
+static const unsigned int BUFSIZE = 10000;
 
 #define BUFFER_OFFSET(i) (reinterpret_cast<void*>(i))
 
@@ -92,7 +92,7 @@ static std::size_t displayrange_right = 8*WIN_W;
 
 static GLuint VertexShaderId, FragmentShaderId, programHandle, uniform_texture1_loc;
 
-static bufferObject waveData, sliderData, waveDataVAO;
+static bufferObject waveData, sliderData, waveVertexArray;
 
 static float zoom = 0.0;
 
@@ -227,15 +227,15 @@ line make_line(float x1, float y1, float x2, float y2) {
 
 }
 
-GLuint generateWaveVAO(triangle* triangles, std::size_t samplecount) {
+void generateWaveVertexArray(triangle* triangles, std::size_t samplecount) {
 
 	const std::size_t trianglecount = (2*samplecount-1);
 
-	glGenBuffers(1, &waveDataVAO.VBOid);
-	glBindBuffer(GL_ARRAY_BUFFER, waveDataVAO.VBOid);
+	glGenBuffers(1, &waveVertexArray.VBOid);
+	glBindBuffer(GL_ARRAY_BUFFER, waveVertexArray.VBOid);
 	glBufferData(GL_ARRAY_BUFFER, (trianglecount)*sizeof(triangle), triangles, GL_STATIC_DRAW);
 
-	waveDataVAO.IBOid = -1;	// not used
+	waveVertexArray.IBOid = -1;	// not used
 
 }
 
@@ -359,7 +359,23 @@ void generateWaveVBOs() {
 
 	const unsigned int num_indices = 6*BUFSIZE;
 
+#ifdef _WIN32
 	GLuint *indices = new GLuint[num_indices];	// three indices per triangle, two triangles per line, BUFSIZE lines
+
+#elif __linux__						
+	if (BUFSIZE > (0x01<<16)/6) {	// eventually, this will be 0x01<<16/4 (smooth, shared seams)
+
+		/*
+		 * Split VBOs into chunks of BUFSIZE/4
+		 */
+		// std::cout << "Buffer size is over 16384. Expect problems.";
+		std::cout << "Buffer size is over 10922 (" << num_indices <<"). Expect problems.";
+
+
+	}
+
+	GLushort *indices = new GLushort[num_indices];	// apparently, the linux mesa driver doesn't support GL_UNSIGNED_INT
+#endif
 
 	int i = 0;
 	int j = 0;
@@ -384,7 +400,11 @@ void generateWaveVBOs() {
 
 	glGenBuffers(1, &waveData.IBOid);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, waveData.IBOid);
+#ifdef _WIN32
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, num_indices*(sizeof(GLuint)), indices, GL_STATIC_DRAW);
+#elif __linux__
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, num_indices*(sizeof(GLushort)), indices, GL_STATIC_DRAW);
+#endif
 
 	delete [] indices;
 
@@ -525,9 +545,6 @@ bool InitGL()
 #endif
 	uniform_texture1_loc = glGetUniformLocation(programHandle, "texture_1");
 
-	generateWaveVBOs();
-	generateSliderVBOs();
-
 	GLenum err = glGetError();
 
 	if (err != GL_NO_ERROR) {
@@ -540,6 +557,9 @@ bool InitGL()
 		return false;
 
 	}
+
+	generateWaveVBOs();
+	generateSliderVBOs();
 
 	return true;
 }
@@ -610,15 +630,18 @@ void drawWave() {
 
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
+#ifdef _WIN32
 	glDrawElements(GL_TRIANGLES, BUFSIZE*2, GL_UNSIGNED_INT, NULL);
+#elif __linux__
+	glDrawElements(GL_TRIANGLES, BUFSIZE/4, GL_UNSIGNED_SHORT, NULL);
+#endif
 	glPopMatrix();
 }
 
 
-void drawWaveVAO() {
+void drawWaveVertexArray() {
 
-	glBindBuffer(GL_ARRAY_BUFFER, waveDataVAO.VBOid); 
-
+	glBindBuffer(GL_ARRAY_BUFFER, waveVertexArray.VBOid); 
 
 	glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
 	glEnableClientState(GL_VERTEX_ARRAY);
@@ -641,7 +664,7 @@ void drawWaveVAO() {
 	glActiveTexture(GL_TEXTURE0);
 	glClientActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
-	glDrawArrays(GL_TRIANGLES, 0, 30000);
+	glDrawArrays(GL_TRIANGLES, 0, BUFSIZE/2);
 	glPopMatrix();
 
 	glDisableClientState(GL_VERTEX_ARRAY);
@@ -696,10 +719,10 @@ inline void draw() {
 
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	//drawWave();
-	drawWaveVAO();
+	drawWave();
+	//drawWaveVertexArray();
 	drawText();
-	drawSliders();
+	//drawSliders();
 
 }
 
@@ -1117,14 +1140,11 @@ int main(int argc, char *argv[])
 
 	delete [] samples;
 
-	SDL_Surface *screen = createSDLWindow();
+	SDL_Surface *screen = createSDLWindow();	// we should now have a GL context.
 	if (!screen) {
 		std::cout << "Couldn't create SDL window.";
 		return 1;
 	}
-
-	std::string string1 = std::string("Filename: ") + std::string(filename);
-	strings.push_back(wpstring(string1, 15, 15));
 
 	if(!InitGL()) {
 
@@ -1133,7 +1153,10 @@ int main(int argc, char *argv[])
 
 	}
 
-	generateWaveVAO(triangles, num_samples);
+	std::string string1 = std::string("Filename: ") + std::string(filename);
+	strings.push_back(wpstring(string1, 15, 15));
+
+	generateWaveVertexArray(triangles, num_samples);
 
 	delete [] triangles;
 
