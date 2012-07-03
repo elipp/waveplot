@@ -4,7 +4,9 @@ varying vec2 texcoord;
 
 void main(void) {
 
-	gl_Position = ftransform();
+	vec4 a = ftransform();
+	a.z = 1.0;
+	gl_Position = a;
 	gl_TexCoord[0] = gl_MultiTexCoord0;
 
 }
