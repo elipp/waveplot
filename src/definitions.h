@@ -1,12 +1,7 @@
 #ifndef DEFINITIONS_H
 #define DEFINITIONS_H
 
-#ifdef _WIN32
-#include "windows_gl_includes.h"
-#elif __linux__
-#include "linux_gl_includes.h"
-#endif
-
+#include "gl_includes.h"
 
 #include <cstring>
 #include <string>

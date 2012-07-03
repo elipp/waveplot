@@ -7,10 +7,9 @@
  */
 
 
-#ifdef _WIN32
-#include "windows_gl_includes.h"
-#elif __linux__
-#include "linux_gl_includes.h"
+#include "gl_includes.h"
+
+#ifdef __linux__
 #include <SDL/SDL.h>
 #endif
 

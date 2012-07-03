@@ -1,0 +1,21 @@
+#ifndef LINUX_GL_INCLUDES_H
+#define	LINUX_GL_INCLUDES_H
+
+#ifdef _WIN32
+#include <Windows.h>
+
+#include <GL\glew.h>
+#include <GL\GL.h>	// probably needless to include these after glew.h
+#include <GL\GLU.h>
+#include <GL\wglew.h> 
+
+#elif __linux__
+#define GL_GLEXT_PROTOTYPES
+
+#include <GL/gl.h>
+#include <GL/glu.h>
+#include <GL/glext.h>
+
+#endif
+
+#endif
