@@ -1,0 +1,3 @@
+waveplot current status:
+
+All versions require GL >= 2.0 support (glCreateShader etc.)
