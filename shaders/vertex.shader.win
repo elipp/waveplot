@@ -1,0 +1,14 @@
+#version 330 compatibility
+
+layout (location = 0) in vec2 in_position;
+layout (location = 1) in vec2 in_texcoord;
+
+
+out vec2 vtexcoord;
+
+void main(void) {
+
+	gl_Position = ftransform();
+	vtexcoord = in_texcoord;
+
+}
