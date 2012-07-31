@@ -15,19 +15,20 @@ char* readShaderFromFile(const char* filename)
 	return buf;
 }
 
-GLint checkShader(GLuint *shaderId, GLint QUERY) // QUERY = usually GL_COMPILE_STATUS
+GLint checkShaderCompileStatus(GLuint shaderId) // QUERY = usually GL_COMPILE_STATUS
 {	
+
 	GLint maxLength = 512;
 	GLint succeeded;
-	glGetShaderiv(*shaderId, QUERY, &succeeded);
+	glGetShaderiv(shaderId, GL_COMPILE_STATUS, &succeeded);
 
 	if (!succeeded)
 	{
-		glGetShaderiv(*shaderId, GL_INFO_LOG_LENGTH, &maxLength);
+		glGetShaderiv(shaderId, GL_INFO_LOG_LENGTH, &maxLength);
 		char *log = new char[maxLength];
 		log[maxLength - 1] = '\0';
 			
-		glGetShaderInfoLog(*shaderId, maxLength, &maxLength, log);
+		glGetShaderInfoLog(shaderId, maxLength, &maxLength, log);
 		printf("[shader status: compile error] see shader.log. \n\n");
 		
 		std::ofstream logfile("shader.log", std::ios::out | std::ios::app);	
@@ -39,7 +40,25 @@ GLint checkShader(GLuint *shaderId, GLint QUERY) // QUERY = usually GL_COMPILE_S
 	}
 
 	else { return 1; }
-
+	
 }
+
+GLint checkProgramLinkStatus(GLuint programHandle) {
+
+	GLint succeeded;
+	glGetProgramiv(programHandle, GL_LINK_STATUS, &succeeded);
+
+	if (!succeeded) {
+
+		printf("[shader status: program %d LINK ERROR!]\n\n", programHandle);
+		return 0;
+
+	}
+
+	else { return 1; }
+}
+
+
+
 
 

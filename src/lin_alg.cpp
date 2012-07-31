@@ -38,12 +38,22 @@ float& vec4::operator() (unsigned short row) {
 }
 
 
-mat4::mat4(float *data) {
+mat4::mat4(const float *data) {
 
 	memcpy(this->data, data, (4*4)*sizeof(float));
 
 }
 
+mat4::mat4(const int main_diagonal_val) {
+
+	mat4 &a = (*this);
+	memset(a.data, 0, 16);
+
+	a(0,0)=main_diagonal_val;
+	a(1,1)=main_diagonal_val;
+	a(2,2)=main_diagonal_val;
+	a(3,3)=main_diagonal_val;
+}
 
 mat4 mat4::operator* (mat4& R) {
 
@@ -95,16 +105,99 @@ void mat4::identity() {
 
 }
 
-float *mat4::rawdata() {
+const float *mat4::rawdata() const {
 
 	return &data[0][0];
 
 }
 
-/*
-ftransform_test. works just fine on linux, no need to test
 
-vec4 ftransform_test(vec4 &vec) {
+
+void mat4::printRaw() {
+
+	
+	float * const ptr = &this->data[0][0];
+	
+	
+#ifdef _WIN32
+	static const char* fmt = "%4.3f %4.3f %4.3f %4.3f\n";
+
+	for (int i = 0; i < 16; i += 4)
+		printf(fmt, *(ptr + i), *(ptr + i + 1), *(ptr + i + 2), *(ptr + i + 3));
+	printf ("\n");
+
+#elif __linux__
+	for (int i = 0; i < 16, i += 4)
+		std::cout << std::setprecision(3) << *(ptr + i) << " " << *(ptr + i + 1) << " " << *(ptr + i + 2) << " " << *(ptr + i + 3) << "\n";
+	std::cout << "\n";
+#endif
+
+	
+}
+
+
+void mat4::make_proj_orthographic(float const & left, float const & right, float const & bottom, float const & top, float const & zNear, float const & zFar) {
+
+	// any previous data is simply discarded.
+	// We could just assume here that the matrix is "clean",
+	// i.e. that any matrix elements other than the ones used in
+	// a pure orthographic projection matrix are zero.
+
+	// also, the subscript operators could be used here.
+	
+	this->data[0][0] = 2.0/(right - left);
+	this->data[1][1] = 2.0/(top - bottom);
+	this->data[2][2] = -2.0/(zFar - zNear);
+
+	// this can be simplified further, if the viewing volume is symmetric,
+	// i.e. right - left == 0 && top-bottom == 0 && zFar-zNear == 0.
+	// But it isn't. =)
+
+	this->data[3][0] = - (right + left) / (right - left);
+	this->data[3][1] = - (top + bottom) / (top - bottom);
+	this->data[3][2] = - (zFar + zNear) / (zFar - zNear);
+
+	this->data[3][3] = 1.0;	// Regardless of how the projection works, opengl itself seems to
+	// be settings this element to 1.0 (tested with glOrtho(...) -> glGetFloatv(GL_PROJECTION_MATRIX) -> print)
+}
+
+void mat4::make_proj_perspective(float const & left, float const & right, float const & bottom, float const & top, float const & zNear, float const & zFar) {
+		
+	// STUB(B)! (probably never going to be used)
+	// nop
+	return;
+
+}
+
+// performs an "in-place transposition" of the matrix
+
+void mat4::T() {
+
+#ifdef _WIN32
+
+	__m128 r1, r2, r3, r4;
+
+#endif
+
+	mat4 &m = (*this);
+	
+	float tmp;
+
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 4; j++) {
+			tmp = m(i, j);
+			m(i, j) = m(j, i);
+			m(j, i) = tmp;
+		}
+	}
+
+}
+
+
+
+//ftransform_test. NOTE: Requires a valid OpenGL context.
+
+/*vec4 ftransform_test(vec4 &vec) {
 
 	float dataholder[16];
 	glGetFloatv(GL_PROJECTION_MATRIX, dataholder);
@@ -116,5 +209,4 @@ vec4 ftransform_test(vec4 &vec) {
 	vec4 ret = (projection*modelview)*vec;
 	return ret;
 
-}
-*/
+}*/

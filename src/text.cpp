@@ -31,7 +31,6 @@ bufferObject generateTextObject(std::string& text, GLuint x, GLuint y) {
 			glyphs[i].vertices[j].y = y + (((j+1)>>1)&1)*11.0;
 			glyphs[i].vertices[j].u = glyph_texcoords[texcoord_index_from_char(text[i])][2*j];
 			glyphs[i].vertices[j].v = glyph_texcoords[texcoord_index_from_char(text[i])][2*j+1];
-			++ij;
 		}
 	}
 	bufferObject textBufObj;

@@ -7,6 +7,7 @@
 #include "utils.h"
 
 GLchar* readShaderFromFile(const char* filename);
-GLint checkShader(GLuint *shaderId, GLint QUERY);
+GLint checkShaderCompileStatus(GLuint shaderId);
+GLint checkProgramLinkStatus(GLuint programHandle);
 
 #endif

@@ -79,7 +79,7 @@ static std::vector<wpstring> strings;
 static std::size_t displayrange_left = 0;
 static std::size_t displayrange_right = 8*WIN_W;
 
-static GLuint VertexShaderId, FragmentShaderId, programHandle, uniform_texture1_loc;
+static GLuint VertexShaderId, FragmentShaderId, programHandle, uniform_texture1_loc, uniform_projection_loc, uniform_modelview_loc;
 
 static bufferObject waveData, sliderData, waveVertexArray;
 
@@ -296,7 +296,7 @@ triangle* bakeWaveVertexArray(float* samples, const std::size_t& samplecount) {
 
 	int i = 1, j = 1;
 
-	while (i < triangle_count - 1) 
+	while (i < triangle_count-1) 
 	{
 
 	/*	x1 = tmpx;
@@ -313,7 +313,7 @@ triangle* bakeWaveVertexArray(float* samples, const std::size_t& samplecount) {
 		y1 = y2;
 		x2 = x3;
 		y2 = y3;
-		printf ("%f %f\n", y1, samples[j]);
+
 		x3 = x2+step;
 		y3 = half_WIN_H*samples[j+2] + WIN_H;
 
@@ -488,6 +488,11 @@ bool InitGL()
 	glCompileShader(VertexShaderId);
 	glCompileShader(FragmentShaderId);
 
+	if (!(checkShaderCompileStatus(FragmentShaderId) && checkShaderCompileStatus(VertexShaderId)))
+	{
+		printf("Shader compile error. See shader.log\n");
+		return false;
+	}
 
 	programHandle = glCreateProgram();
 
@@ -495,17 +500,19 @@ bool InitGL()
 	glAttachShader(programHandle, FragmentShaderId);
 
 	glLinkProgram(programHandle);
+	
+	if (!checkProgramLinkStatus(programHandle)){
+		printf("Shader LINK error.\n");
+		return false;
+	}
+	
 	glUseProgram(programHandle);
 
 	delete [] vert_shader;
 	delete [] frag_shader;
 
-	if (!checkShader(&FragmentShaderId, GL_COMPILE_STATUS) ||
-			!checkShader(&VertexShaderId, GL_COMPILE_STATUS))
-	{
-		printf("Shader compile error. See shader.log\n");
-		return false;
-	}
+	
+
 
 #ifdef _WIN32
 
@@ -515,8 +522,12 @@ bool InitGL()
 
 	glEnableVertexAttribArray(0);
 	glEnableVertexAttribArray(1);
+	
 
 #endif
+	
+	uniform_projection_loc = glGetUniformLocation(programHandle, "PROJ");
+	uniform_modelview_loc = glGetUniformLocation(programHandle, "MVIEW");
 	uniform_texture1_loc = glGetUniformLocation(programHandle, "texture_1");
 
 	err = glGetError();
@@ -532,7 +543,7 @@ bool InitGL()
 
 	}
 
-	printf("%d\n", uniform_texture1_loc);
+	printf("%d %d %d\n", uniform_texture1_loc, uniform_projection_loc, uniform_modelview_loc);
 
 	// these two cause problemz
 	//generateWaveVBOs();
@@ -655,11 +666,8 @@ void drawWaveVertexArray() {
 void drawText() {
 
 	static std::vector<wpstring>::const_iterator iter = strings.begin();
-
-
-
 	while(iter != strings.end()) {
-
+		
 		glBindBuffer(GL_ARRAY_BUFFER, (*iter).bufObj.VBOid);
 #ifdef _WIN32
 		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
@@ -669,26 +677,20 @@ void drawText() {
 		glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
 		glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
 #endif
+		
+		glUseProgram(programHandle);
 		glUniform1i(uniform_texture1_loc, 0);
 		
-		glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glLoadIdentity();
-		glOrtho(0.0, WIN_W, WIN_H, 0.0, 0.0, 1.0);
+		glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, Text::projection_matrix.rawdata());
+		glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, Text::modelview_matrix.rawdata());
 
-		glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (*iter).bufObj.IBOid);
-		glUseProgram(programHandle);
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, font_texture.textureId);
 
 		glDrawElements(GL_TRIANGLES, 6*(*iter).length, GL_UNSIGNED_SHORT, NULL);
-		glPopMatrix();
-		glMatrixMode(GL_PROJECTION);
-		glPopMatrix();
+
 		++iter;
 	}
 
@@ -981,7 +983,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	if (!CreateGLWindow("waveplot", WIN_W, WIN_H, 32, FALSE)) {
 		return 1;
 	}
-
 
 	int running=1;
 
