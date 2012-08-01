@@ -60,6 +60,9 @@ struct mat4 {	// column major :D
 	vec4 row(const int& i) const;
 	vec4 column(const int& i) const;
 
+	void assignToRow(const int& row, const vec4& v);
+	void assignToColumn(const int& column, const vec4& v);
+
 	mat4(const float *data);
 	mat4() { memset(this->data, 0, sizeof(this->data)); }
 	mat4(const int main_diagonal_val);
@@ -73,6 +76,7 @@ struct mat4 {	// column major :D
 	//		memcpy/_mm_store_ps:		8.3 s.
 	//		_mm_set_ps/_mm_store_ps:	5.6 s.
 	//		_mm_set_ps/_mm_storeu_ps:	5.6 s.	identical (?)
+	//		_mm_loadu_ps/_mm_store_ps:	4.8 s.	Nice!
 	//
 	// non-SSE:
 	//		the elif linux version:		150.2 s. ! :D

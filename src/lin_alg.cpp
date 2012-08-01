@@ -69,7 +69,7 @@ vec4 vec4::operator+(const vec4 &b) {
 void vec4::print(){
 
 #ifdef _WIN32
-	printf("%f %f %f %f\n", data.m128_f32[0], data.m128_f32[1], data.m128_f32[2], data.m128_f32[3]);
+	printf("%f %f %f %f\n\n", data.m128_f32[0], data.m128_f32[1], data.m128_f32[2], data.m128_f32[3]);
 #elif __linux__
 	std::cout.precision(4);
 	std::cout << std::fixed << this->data[0]<< ", " <<  this->data[1]<< ", " <<  this->data[2]<< ", " <<  this->data[3] << "\n";
@@ -77,17 +77,23 @@ void vec4::print(){
 }
 
 void mat4::print() {
-
-	mat4 &mat = (*this);
+#ifdef _WIN32
+	mat4 &M = (*this);
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 4; j++)
+			printf("%4.3f ", M.elementAt(i,j));
+		printf("\n");
+	}
+	printf("\n");
+#elif __linux__
+	mat4 &M = (*this);
 
 	std::cout.precision(4);
 	for (int i = 0; i < 4; i++) {
-
-		std::cout << std::fixed << mat(0, i) << " " << mat(1, i) << " " << mat(2, i) << " " << mat(3, i) << "\n";
-
+		std::cout << std::fixed << M(0, i) << " " << M(1, i) << " " << M(2, i) << " " << M(3, i) << "\n";
 	}
 
-
+#endif
 }
 
 float& vec4::operator() (const int & row) {	
@@ -100,9 +106,11 @@ float& vec4::operator() (const int & row) {
 }
 
 float vec4::elementAt(const int& row) const {
-
+#ifdef _WIN32
 	return data.m128_f32[row];
-
+#elif __linux__
+	return data[row];
+#endif
 }
 
 float dot(const vec4 &a, const vec4 &b) {
@@ -239,6 +247,38 @@ vec4 mat4::column(const int &i) const {
 #endif
 }
 
+void mat4::assignToColumn(const int &column, const vec4& v) {
+#ifdef _WIN32
+	mat4 &M = (*this);
+	_mm_storeu_ps(&M.data[column][0], v.data);
+#elif __linux__
+
+#endif
+
+}
+
+void mat4::assignToRow(const int &row, const vec4& v) {
+#ifdef _WIN32
+	// here, since 
+	// 1. row operations are inherently slower than column operations, and
+	// 2. transposition is blazing fast (:D)
+	// we could just transpose the matrix and do some fancy sse shit with it.
+	
+	mat4& M = (*this);
+	M.T();
+	M.assignToColumn(row, v);
+	M.T();
+
+#elif __linux__
+		mat4& M = (*this);
+	M(0, row) = v.elementAt(0);
+	M(1, row) = v.elementAt(1);
+	M(2, row) = v.elementAt(2);
+	M(3, row) = v.elementAt(3);
+#endif
+
+}
+
 
 const float *mat4::rawdata() const {
 
@@ -308,7 +348,7 @@ void mat4::T() {
 
 #ifdef _WIN32
 
-	__m128	r1, r2, r3, r4;
+	__m128	c1, c2, c3, c4;
 	 //let's still keep the memcpy version just for comparison
 	/*
 	memcpy(&r1, &(data[0][0]), 4*sizeof(float));
@@ -317,22 +357,25 @@ void mat4::T() {
 	memcpy(&r4, &(data[3][0]), 4*sizeof(float));
 	*/
 	
-	r1 = _mm_set_ps(data[0][0], data[0][1], data[0][2], data[0][3]);
-	r2 = _mm_set_ps(data[1][0], data[1][1], data[1][2], data[1][3]);
-	r3 = _mm_set_ps(data[2][0], data[2][1], data[2][2], data[2][3]);
-	r4 = _mm_set_ps(data[3][0], data[3][1], data[3][2], data[3][3]);
+	// the _MM_TRANSPOSE_PS has its arguments named row1, row2 ... etc.,
+	// but actually it doesn't matter which way we do it :D
+	// Doing it by column.
+	c1 = _mm_loadu_ps(&data[0][0]);
+	c2 = _mm_loadu_ps(&data[1][0]);
+	c3 = _mm_loadu_ps(&data[2][0]);
+	c4 = _mm_loadu_ps(&data[3][0]);
 	
-	_MM_TRANSPOSE4_PS(r1, r2, r3, r4);	// microsoft special transpose macro :P
+	_MM_TRANSPOSE4_PS(c1, c2, c3, c4);	// microsoft special transpose macro :P
 
 	// as of now, the mat4 (and vec4) structures are
 	// 16-byte aligned, so _mm_store_ps can be used
 	// safely instead of the less efficient _mm_storeu_ps
 	// intrinsics
 
-	_mm_store_ps(&(data[0][0]), r1);
-	_mm_store_ps(&(data[1][0]), r2);
-	_mm_store_ps(&(data[2][0]), r3);
-	_mm_store_ps(&(data[3][0]), r4);
+	_mm_store_ps(&(data[0][0]), c1);	
+	_mm_store_ps(&(data[1][0]), c2);
+	_mm_store_ps(&(data[2][0]), c3);
+	_mm_store_ps(&(data[3][0]), c4);
 	
 	
 
