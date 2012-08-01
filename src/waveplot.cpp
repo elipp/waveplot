@@ -85,6 +85,16 @@ static bufferObject waveData, sliderData, waveVertexArray;
 
 static float zoom = 0.0;
 
+static mat4 wave_projection, wave_modelview;
+
+namespace Text {
+	// glOrtho(0.0, WIN_W, WIN_H, 0.0, 0.0, 1.0);
+	mat4 projection_matrix;	// since this will never change.
+	mat4 modelview_matrix(MAT_IDENTITY);
+
+}
+
+
 bool texture::make_texture(const char* filename, GLint filter_flag) {
 
 	std::ifstream input(filename, std::ios::binary);
@@ -444,11 +454,11 @@ bool InitGL()
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glEnable(GL_BLEND);
 
-	glMatrixMode(GL_PROJECTION);
+	/*glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	glOrtho(0,WIN_W,WIN_H, 0,0.0f,1.0f);
 	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
+	glLoadIdentity();*/
 	//glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
 
 	const char* version = (const char*) glGetString(GL_VERSION);
@@ -501,12 +511,13 @@ bool InitGL()
 
 	glLinkProgram(programHandle);
 	
-	if (!checkProgramLinkStatus(programHandle)){
+	if (checkProgramLinkStatus(programHandle) == FALSE){
 		printf("Shader LINK error.\n");
 		return false;
 	}
 	
 	glUseProgram(programHandle);
+
 
 	delete [] vert_shader;
 	delete [] frag_shader;
@@ -526,10 +537,11 @@ bool InitGL()
 
 #endif
 	
-	uniform_projection_loc = glGetUniformLocation(programHandle, "PROJ");
-	uniform_modelview_loc = glGetUniformLocation(programHandle, "MVIEW");
 	uniform_texture1_loc = glGetUniformLocation(programHandle, "texture_1");
-
+	
+	uniform_projection_loc = glGetUniformLocation(programHandle, "projectionMatrix");
+	uniform_modelview_loc = glGetUniformLocation(programHandle, "modelviewMatrix");
+	
 	err = glGetError();
 
 	if (err != GL_NO_ERROR) {
@@ -570,13 +582,13 @@ void drawSliders() {
 #endif
 	glUniform1i(uniform_texture1_loc, 0);
 
-	glMatrixMode(GL_PROJECTION);
+	/*glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 
 	glOrtho(0.0, WIN_W, WIN_H, 0.0, 0.0, 1.0);
 
 	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
+	glLoadIdentity(); */
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sliderData.IBOid);
 	glUseProgram(programHandle);
@@ -604,20 +616,17 @@ void drawWave() {
 	glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
 
 #endif
-	glUniform1i(uniform_texture1_loc, 0);
 
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-
-	glOrtho(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), 0.0f, 1.0f);
-
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
-	glTranslatef(displacement, 0.0, 0.0);
-
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, waveData.IBOid);
+	wave_projection.make_proj_orthographic(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), -1.0f, 1.0f);
+	wave_modelview.identity();
+	// no translation facilities xDD
+	wave_modelview(3,0) = displacement;
 	glUseProgram(programHandle);
+	glUniform1i(uniform_texture1_loc, 0);
+	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, wave_projection.rawdata());
+	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, wave_modelview.rawdata());
+	
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, waveData.IBOid);
 
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
@@ -626,7 +635,10 @@ void drawWave() {
 #elif __linux__
 	glDrawElements(GL_TRIANGLES, BUFSIZE/4, GL_UNSIGNED_SHORT, NULL);
 #endif
-	glPopMatrix();
+	
+	glUseProgram(0);
+	
+	//glPopMatrix();
 }
 
 
@@ -641,7 +653,7 @@ void drawWaveVertexArray() {
 	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 	glUniform1i(uniform_texture1_loc, 0);
 
-	glMatrixMode(GL_PROJECTION);
+/*	glMatrixMode(GL_PROJECTION);
 	
 	glOrtho(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), 0.0f, 1.0f);
 
@@ -650,13 +662,13 @@ void drawWaveVertexArray() {
 	glLoadIdentity();
 	glTranslatef(displacement, 0.0, 0.0);
 
-	glUseProgram(programHandle);
+	glUseProgram(programHandle);*/
 
 	glActiveTexture(GL_TEXTURE0);
 	glClientActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
 	glDrawArrays(GL_TRIANGLES, 0, BUFSIZE/2);
-	glPopMatrix();
+//	glPopMatrix();
 
 	glDisableClientState(GL_VERTEX_ARRAY);
 	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -665,7 +677,12 @@ void drawWaveVertexArray() {
 
 void drawText() {
 
-	static std::vector<wpstring>::const_iterator iter = strings.begin();
+	static std::vector<wpstring>::const_iterator iter;
+
+	// damn static variables.
+	
+	iter = strings.begin();
+	
 	while(iter != strings.end()) {
 		
 		glBindBuffer(GL_ARRAY_BUFFER, (*iter).bufObj.VBOid);
@@ -677,7 +694,10 @@ void drawText() {
 		glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
 		glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
 #endif
-		
+		Text::projection_matrix.make_proj_orthographic(0.0, WIN_W, WIN_H, 0.0, -1.0, 1.0);
+		Text::modelview_matrix.identity();
+
+
 		glUseProgram(programHandle);
 		glUniform1i(uniform_texture1_loc, 0);
 		
@@ -690,7 +710,8 @@ void drawText() {
 		glBindTexture(GL_TEXTURE_2D, font_texture.textureId);
 
 		glDrawElements(GL_TRIANGLES, 6*(*iter).length, GL_UNSIGNED_SHORT, NULL);
-
+		
+		glUseProgram(0);
 		++iter;
 	}
 
@@ -706,7 +727,7 @@ inline void draw() {
 	//fdrawWaveVertexArray();
 	drawText();
 	//drawSliders();
-
+		
 }
 
 #ifdef _WIN32
@@ -989,7 +1010,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	const char* filename = "resources/asdfmono.wav";
 
 	std::string string1 = std::string("Filename: ") + std::string(filename);
-	strings.push_back(wpstring(string1, 500, 500));
+	strings.push_back(wpstring(string1, 15, 15));
 
 	std::ifstream input(filename, std::ios::binary);
 

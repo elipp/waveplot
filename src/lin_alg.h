@@ -39,7 +39,7 @@ struct mat4 {	// column major :D
 	void T();			// "in place transpose"
 
 	const float *rawdata() const;	// returns a column-major float[16]
-	void printRaw();	// prints elements in actual memory order.
+	void printRaw() const;	// prints elements in actual memory order.
 
 	void print();
 	void make_proj_orthographic(float const & left, float const & right, float const & bottom, float const & top, float const & zNear, float const & zFar);

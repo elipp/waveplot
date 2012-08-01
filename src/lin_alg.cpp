@@ -113,10 +113,10 @@ const float *mat4::rawdata() const {
 
 
 
-void mat4::printRaw() {
+void mat4::printRaw() const {
 
 	
-	float * const ptr = &this->data[0][0];
+	const float * const ptr = &this->data[0][0];
 	
 	
 #ifdef _WIN32
@@ -138,13 +138,15 @@ void mat4::printRaw() {
 
 void mat4::make_proj_orthographic(float const & left, float const & right, float const & bottom, float const & top, float const & zNear, float const & zFar) {
 
-	// any previous data is simply discarded.
 	// We could just assume here that the matrix is "clean",
 	// i.e. that any matrix elements other than the ones used in
 	// a pure orthographic projection matrix are zero.
 
 	// also, the subscript operators could be used here.
 	
+	// FOR DEBUG, and just to be on the safe side:
+	this->identity();
+
 	this->data[0][0] = 2.0/(right - left);
 	this->data[1][1] = 2.0/(top - bottom);
 	this->data[2][2] = -2.0/(zFar - zNear);

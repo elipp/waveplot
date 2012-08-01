@@ -11,7 +11,6 @@ char* readShaderFromFile(const char* filename)
 	
 	buf[length] = '\0';
 	
-
 	return buf;
 }
 
