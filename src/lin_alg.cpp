@@ -4,7 +4,7 @@ vec4::vec4(float _x, float _y, float _z, float _w) {
 
 #ifdef _WIN32
 	// must use _mm_set_ps for this function
-	data = _mm_set_ps(_x, _y, _z, _w);
+	data = _mm_setr_ps(_x, _y, _z, _w);
 #elif __linux__
 
 	data[0] = _x;
@@ -69,9 +69,7 @@ vec4 vec4::operator+(const vec4 &b) {
 void vec4::print(){
 
 #ifdef _WIN32
-	float data_arr[4];
-	_mm_storeu_ps(data_arr, data);	// storeu for now
-	printf("%f %f %f %f\n", data_arr[0], data_arr[1], data_arr[2], data_arr[3]);
+	printf("%f %f %f %f\n", data.m128_f32[0], data.m128_f32[1], data.m128_f32[2], data.m128_f32[3]);
 #elif __linux__
 	std::cout.precision(4);
 	std::cout << std::fixed << this->data[0]<< ", " <<  this->data[1]<< ", " <<  this->data[2]<< ", " <<  this->data[3] << "\n";
@@ -92,19 +90,60 @@ void mat4::print() {
 
 }
 
-
 float& vec4::operator() (const int & row) {	
 
 #ifdef _WIN32
-	// TODO: look for a better solution :D
-	float a[4];
-	_mm_storeu_ps(a, data);	// unaligned just in case (storeu)
-	return a[row];
+	return data.m128_f32[row];
 #elif __linux__
 	return data[row];
 #endif
+}
 
+float vec4::elementAt(const int& row) const {
 
+	return data.m128_f32[row];
+
+}
+
+float dot(const vec4 &a, const vec4 &b) {
+#ifdef _WIN32
+
+	static const int mask = 0x71; // == 0111 0001_2, which means "use x,y,z components of the vectors, store result in the lowest word only"
+	__m128 dot = _mm_dp_ps(a.data, b.data, mask);	// direct computation of dot product (SSE4)
+	return dot.m128_f32[0];	 
+	
+	/*// yet another solution	
+	__m128 mul = _mm_mul_ps(a.data, b.data);
+	return mul.m128_f32[0]+mul.m128_f32[1]+mul.m128_f32[2]+mul.m128_f32[3];*/
+
+#elif __linux__
+
+	return 0;
+	//return a.data[0]*b.data[0] + a.data[1]*b.data[1] + a.data[2]*b.data[2] +a.data[3]*b.data[3];
+	// NAIVE: return a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
+#endif
+
+}
+
+vec4 cross(const vec4 &a, const vec4 &b) {
+
+	// See: http://fastcpp.blogspot.fi/2011/04/vector-cross-product-using-sse-code.html.
+	// Absolutely beautiful (although the exact same recipe can be found at
+	// http://neilkemp.us/src/sse_tutorial/sse_tutorial.html#E, albeit in assembly.)
+	
+#ifdef _WIN32
+
+	return vec4(
+	_mm_sub_ps(
+    _mm_mul_ps(_mm_shuffle_ps(a.data, a.data, _MM_SHUFFLE(3, 0, 2, 1)), _mm_shuffle_ps(b.data, b.data, _MM_SHUFFLE(3, 1, 0, 2))), 
+    _mm_mul_ps(_mm_shuffle_ps(a.data, a.data, _MM_SHUFFLE(3, 1, 0, 2)), _mm_shuffle_ps(b.data, b.data, _MM_SHUFFLE(3, 0, 2, 1)))
+  )
+  );
+
+#elif __linux__
+
+	//NYI!
+#endif
 }
 
 
@@ -125,43 +164,49 @@ mat4::mat4(const int main_diagonal_val) {
 	a(3,3)=main_diagonal_val;
 }
 
-mat4 mat4::operator* (mat4& R) {
+mat4 mat4::operator* (const mat4& R) const {
 
 	mat4 ret;
-	mat4 &L = (*this);	// for easier syntax
+	const mat4 &L = (*this);	// for easier syntax
 
 //	ret(0, 0) = l(0, 0)*r(0, 0) + l(1,0)*l(0,1) + l(2,0)*r(0,2) + l(3,0)*r(0,3);
 
 	for (int i = 0; i < 4; i++)
 		for (int j = 0; j < 4; j++)
-			ret(i,j) = L(0, j)*R(i, 0) 
-				 + L(1, j)*R(i, 1) 
-				 + L(2, j)*R(i, 2) 
-				 + L(3, j)*R(i, 3);
+			ret(i,j) = L.elementAt(0, j)*R.elementAt(i, 0) 
+				 + L.elementAt(1, j)*R.elementAt(i, 1) 
+				 + L.elementAt(2, j)*R.elementAt(i, 2) 
+				 + L.elementAt(3, j)*R.elementAt(i, 3);
 
 	return ret;
 
 }
 
-vec4 mat4::operator* (vec4& R) {
+vec4 mat4::operator* (const vec4& R) const {
 
 	vec4 ret;
-	mat4 &L = (*this);
+	const mat4 &L = (*this);
 
 	for (int i = 0; i < 4; i++)
-		ret(i) = L(0, i)*R(0)
-		       + L(1, i)*R(1)
-		       + L(2, i)*R(2)
-		       + L(3, i)*R(3);
+		ret(i) = L.elementAt(0, i)*R.elementAt(0)
+		       + L.elementAt(1, i)*R.elementAt(1)
+		       + L.elementAt(2, i)*R.elementAt(2)
+		       + L.elementAt(3, i)*R.elementAt(3);
 
 	return ret;
 }
 
 
-float& mat4::operator() ( unsigned short column, unsigned short row ) {
+float& mat4::operator() ( const int &column, const int &row ) {
 
 	// no bounds checking! 
 	return data[column][row];
+}
+
+float mat4::elementAt(const int &column, const int &row) const {
+
+	return data[column][row];
+
 }
 
 void mat4::identity() {
@@ -175,16 +220,23 @@ void mat4::identity() {
 
 }
 
-vec4 mat4::row(const int &i) {
-
+vec4 mat4::row(const int &i) const {
+#ifdef _WIN32
+	const mat4 &M = (*this);
+	return vec4(_mm_set_ps(M.elementAt(0,i), M.elementAt(1,i), M.elementAt(2,i), M.elementAt(3,i)));
+#elif __linux__
 	return vec4(data[0][i], data[1][i], data[2][i], data[3][i]);
-
+#endif
 }
 
-vec4 mat4::column(const int &i) {
-
-	return vec4(data[i][0], data[i][1],data[i][2],data[i][3]);
-
+vec4 mat4::column(const int &i) const {
+#ifdef _WIN32
+	// this can be actually optimised further than row(), since the elements are contiguous
+	const mat4 &M = (*this);
+	return vec4(_mm_load_ps(&M.data[i][0]));
+#elif __linux__
+	return vec4(data[0][i], data[1][i], data[2][i], data[3][i]);
+#endif
 }
 
 
