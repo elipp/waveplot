@@ -11,17 +11,29 @@
 
 enum { MAT_ZERO = 0x0, MAT_IDENTITY = 0x1 };
 
-struct vec4 {	// for debugging purposes 
-
+#ifdef _WIN32
+__declspec(align(16)) // this of course refers to the following struct
+struct vec4 {		
+	__m128 data;
+	vec4(const __m128 &a) : data(a) {} ;
+#elif __linux__
+struct vec4 {
 	float data[4];
-	vec4(float _x, float _y, float _z, float _w);
-	vec4() {}
-	float& operator() (unsigned short row);
+#endif
+	vec4();	
+	vec4(float _x, float _y, float _z, float _w);	
+	vec4(const float * const a);
+	float& operator() (const int& row);
+	void operator*=(const float& scalar);
+	vec4 operator+(const vec4& b);
 
 	void print();
 
 };
 
+#ifdef _WIN32
+__declspec(align(64))
+#endif
 struct mat4 {	// column major :D
 
 
@@ -30,6 +42,9 @@ struct mat4 {	// column major :D
 
 	mat4 operator* (mat4 &R);
 	vec4 operator* (vec4 &R);
+	
+	vec4 row(const int& i);
+	vec4 column(const int& i);
 
 	mat4(const float *data);
 	mat4() { memset(this->data, 0, sizeof(this->data)); }
@@ -37,6 +52,16 @@ struct mat4 {	// column major :D
 
 	void identity();	// "in place identity"
 	void T();			// "in place transpose"
+	
+	// benchmarking results for 100000000 transpositions on the same matrix
+	// SSE (_MM_TRANSPOSE4_PS):
+	//		memcpy/_mm_store_ps:		8.3 s.
+	//		_mm_set_ps/_mm_store_ps:	5.6 s.
+	//		_mm_set_ps/_mm_storeu_ps:	5.6 s.	identical (?)
+	//
+	// non-SSE:
+	//		the elif linux version:		150.2 s. ! :D
+
 
 	const float *rawdata() const;	// returns a column-major float[16]
 	void printRaw() const;	// prints elements in actual memory order.

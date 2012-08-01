@@ -86,12 +86,12 @@ static bufferObject waveData, sliderData, waveVertexArray;
 static float zoom = 0.0;
 
 static mat4 wave_projection, wave_modelview;
+static vec4 wave_position, // constructed as zero vectors.
+			wave_view_velocity;	// used to give the notion of inertia to the movement of the camera
 
 namespace Text {
-	// glOrtho(0.0, WIN_W, WIN_H, 0.0, 0.0, 1.0);
 	mat4 projection_matrix;	// since this will never change.
 	mat4 modelview_matrix(MAT_IDENTITY);
-
 }
 
 
@@ -620,7 +620,8 @@ void drawWave() {
 	wave_projection.make_proj_orthographic(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), -1.0f, 1.0f);
 	wave_modelview.identity();
 	// no translation facilities xDD
-	wave_modelview(3,0) = displacement;
+	wave_modelview(3,0) = wave_position(0);
+	wave_modelview(3,1) = wave_position(1);
 	glUseProgram(programHandle);
 	glUniform1i(uniform_texture1_loc, 0);
 	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, wave_projection.rawdata());
@@ -679,7 +680,7 @@ void drawText() {
 
 	static std::vector<wpstring>::const_iterator iter;
 
-	// damn static variables.
+	// damn static variables. ;-)
 	
 	iter = strings.begin();
 	
@@ -931,8 +932,80 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 
 LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	static bool mbuttondown = false;
+	static LPPOINT mouse_pos0 = new POINT;
+	static vec4 wave_pos0;
+	static RECT windowRect;
+	static float dx, dy, prev_dx, prev_dy;
+
+	if (mbuttondown) {
+				POINT p;
+				GetCursorPos(&p);
+				// this way, no timers are needed (which are always 
+				// unreliable and inaccurate anyway)
+				prev_dx = dx;
+				prev_dy = dy;
+
+				p.x = p.x > windowRect.right ? windowRect.right : p.x;
+				p.x = p.x < windowRect.left ? windowRect.left : p.x;
+				p.y = p.y < windowRect.top ? windowRect.top : p.y;
+				p.y = p.y > windowRect.bottom ? windowRect.bottom : p.y;
+				
+				dx = -(mouse_pos0->x - p.x);
+				dy = -(mouse_pos0->y - p.y);
+				
+				float Ddx = dx-prev_dx;
+				float Ddy = dy-prev_dy;
+
+				if (Ddx == 0 && Ddy == 0) {
+					wave_view_velocity(0) += Ddx;
+					wave_view_velocity(1) += Ddy;
+				}
+
+				wave_position=vec4(wave_pos0(0) + dx, wave_pos0(1) + dy, 0, 1.0);
+	}
+
 	switch(uMsg)
 	{
+		case WM_LBUTTONDOWN:
+			{
+				GetWindowRect(hWnd, &windowRect);
+				ClipCursor(&windowRect);
+				GetCursorPos(mouse_pos0);
+				wave_pos0 = wave_position;
+				mbuttondown = true;
+				
+				ShowCursor(FALSE);
+				ShowCursor(FALSE);
+				
+				return 0;
+			}
+		case WM_LBUTTONUP:
+			{
+				ClipCursor(NULL);
+
+				ShowCursor(TRUE);	// for some very odd reason, two calls are needed to
+				ShowCursor(TRUE);	// accomplish the task :D
+
+				mbuttondown=false;
+				return 0;
+			}
+		case WM_KEYDOWN:
+			{
+				keys[wParam]=TRUE;
+				return 0;
+			}
+		case WM_KEYUP:
+			{
+				keys[wParam]=FALSE;
+				return 0;
+			}
+		case WM_SIZE:
+			{
+				return 0;
+			}
+			;
+	
 		case WM_ACTIVATE:
 			if(!HIWORD(wParam))
 			{
@@ -956,27 +1029,12 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 		case WM_CLOSE:
 			{
+				delete mouse_pos0;
 				PostQuitMessage(0);
 				return 0;
 			}
-
-		case WM_KEYDOWN:
-			{
-				keys[wParam]=TRUE;
-				return 0;
-			}
-		case WM_KEYUP:
-			{
-				keys[wParam]=FALSE;
-				return 0;
-			}
-		case WM_SIZE:
-			{
-				//ResizeGLScene(LOWORD(lParam), HIWORD(lParam));
-			}
 			;
 	}
-
 	/* the rest shall be passed to defwindowproc. (default window procedure) */
 	return DefWindowProc(hWnd, uMsg, wParam, lParam);
 }
