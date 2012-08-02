@@ -54,17 +54,17 @@ struct mat4 {	// column major :D
 	float data[4][4];
 	float& operator() (const int &column, const int &row);	// reference & non-const -> modifiable by subscript
 	float elementAt(const int &column, const int &row) const;
-	mat4 operator* (const mat4 &R) const;
-	vec4 operator* (const vec4 &R) const;
+	mat4 operator* (const mat4 &R);	// the other matrix needs to be transposed, hence no const specifier
+	vec4 operator* (const vec4 &R);
 	
-	vec4 row(const int& i) const;
-	vec4 column(const int& i) const;
+	vec4 row(const int& i);	// these two should be const, but optimization is a higher priority :D
+	vec4 column(const int& i);
 
 	void assignToRow(const int& row, const vec4& v);
 	void assignToColumn(const int& column, const vec4& v);
 
 	mat4(const float *data);
-	mat4() { memset(this->data, 0, sizeof(this->data)); }
+	mat4();
 	mat4(const int main_diagonal_val);
 
 	void identity();	// "in place identity"

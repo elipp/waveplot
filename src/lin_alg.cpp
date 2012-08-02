@@ -3,8 +3,9 @@
 vec4::vec4(float _x, float _y, float _z, float _w) {
 
 #ifdef _WIN32
-	// must use _mm_set_ps for this function
-	data = _mm_setr_ps(_x, _y, _z, _w);
+	// must use _mm_setr_ps for this constructor. Note 'r' for reversed.
+	//data = _mm_setr_ps(_x, _y, _z, _w);
+	data = _mm_set_ps(_w, _z, _y, _x);	// could be faster, haven't tested
 #elif __linux__
 
 	data[0] = _x;
@@ -69,7 +70,7 @@ vec4 vec4::operator+(const vec4 &b) {
 void vec4::print(){
 
 #ifdef _WIN32
-	printf("%f %f %f %f\n\n", data.m128_f32[0], data.m128_f32[1], data.m128_f32[2], data.m128_f32[3]);
+	printf("(%4.3f, %4.3f, %4.3f, %4.3f)\n", data.m128_f32[0], data.m128_f32[1], data.m128_f32[2], data.m128_f32[3]);
 #elif __linux__
 	std::cout.precision(4);
 	std::cout << std::fixed << this->data[0]<< ", " <<  this->data[1]<< ", " <<  this->data[2]<< ", " <<  this->data[3] << "\n";
@@ -81,7 +82,7 @@ void mat4::print() {
 	mat4 &M = (*this);
 	for (int i = 0; i < 4; i++) {
 		for (int j = 0; j < 4; j++)
-			printf("%4.3f ", M.elementAt(i,j));
+			printf("%4.3f ", M.elementAt(j,i));
 		printf("\n");
 	}
 	printf("\n");
@@ -136,7 +137,7 @@ float dot(const vec4 &a, const vec4 &b) {
 vec4 cross(const vec4 &a, const vec4 &b) {
 
 	// See: http://fastcpp.blogspot.fi/2011/04/vector-cross-product-using-sse-code.html.
-	// Absolutely beautiful (although the exact same recipe can be found at
+	// Absolutely beautiful (the exact same recipe can be found at
 	// http://neilkemp.us/src/sse_tutorial/sse_tutorial.html#E, albeit in assembly.)
 	
 #ifdef _WIN32
@@ -155,6 +156,29 @@ vec4 cross(const vec4 &a, const vec4 &b) {
 }
 
 
+mat4::mat4() {
+#ifdef _WIN32
+
+	static const __m128 a;
+	static const __m128 zero = _mm_xor_ps(a,a);
+	_mm_store_ps(&data[0][0], zero);	// storeu not needed, __m128 is aligned
+	_mm_store_ps(&data[1][0], zero);	
+	_mm_store_ps(&data[2][0], zero);	
+	_mm_store_ps(&data[3][0], zero);	
+	
+	// benchmarks (for a constructor? :D): 100000000 iterations:
+	// store(xorps) with pointer crap:	2.998s
+	// memset:							3.786s
+	// store(setzero):					2.742s 
+	// store(xorps) with stupid redund. 2.747s
+	// store(xorps) with precalc. zero	2.680s
+
+#elif __linux__
+
+	memset(this->data, 0, sizeof(this->data));
+#endif
+
+}
 mat4::mat4(const float *data) {
 
 	memcpy(this->data, data, (4*4)*sizeof(float));
@@ -172,36 +196,128 @@ mat4::mat4(const int main_diagonal_val) {
 	a(3,3)=main_diagonal_val;
 }
 
-mat4 mat4::operator* (const mat4& R) const {
+mat4 mat4::operator* (const mat4& R) {
+
+#ifdef _WIN32
+
+	mat4 &L = (*this);
+	mat4 ret;
+	
+	// we'll choose to transpose the other matrix, and instead of calling the perhaps
+	// more intuitive row(), we'll be calling column(), which is a LOT faster in comparison.
+	L.T();
+	
+	static const int mask = 0xF1;	// a different mask than what's used in dot().
+									// this time, we want to include the 4th component as well
+	
+	// calculate using dot products (_mm_dp_ps)
+	
+	// next optimization would be to skip vec4 construction altogether :D
+	
+	/*for (int i = 0; i < 4; i++) {
+		//vec4 b(L.column(i));		
+		vec4 b(_mm_load_ps(&L.data[i][0])); //vec4 b(L.column(i));
+		for (int j = 0; j < 4; j++) {
+			vec4 a(_mm_load_ps(&R.data[j][0])); //vec4 a(R.column(j));
+			__m128 r = _mm_dp_ps(a.data, b.data, mask);
+			ret.data[j][i] = r.m128_f32[0];		//ret(j, i) = r.m128_f32[0];
+		}
+	}*/
+	for (int i = 0; i < 4; i++) {
+		//vec4 b(L.column(i));		
+		const __m128 b = _mm_load_ps(&L.data[i][0]); //vec4 b(L.column(i));
+		for (int j = 0; j < 4; j++) {
+			vec4 a(); //vec4 a(R.column(j));
+			__m128 r = _mm_dp_ps(_mm_load_ps(&R.data[j][0]), b, mask);
+			ret.data[j][i] = r.m128_f32[0];		//ret(j, i) = r.m128_f32[0];
+		}
+	}
+	L.T();
+	
+	// 10000000 iterations:
+	// dp_ps, vec4, redirection to column:			15.796s
+	// dp_ps, vec4, no redirection:					10.449s 
+	// dp_ps, vec4, no redirection, no operator()	6.915s 
+	// dp_ps, no vec4, no redir., no operator()		2.611s. :-D
+	// naive, elementAt()							33.740s
+
+	return ret;
+#elif __linux__
 
 	mat4 ret;
 	const mat4 &L = (*this);	// for easier syntax
 
 //	ret(0, 0) = l(0, 0)*r(0, 0) + l(1,0)*l(0,1) + l(2,0)*r(0,2) + l(3,0)*r(0,3);
 
-	for (int i = 0; i < 4; i++)
+for (int i = 0; i < 4; i++)
 		for (int j = 0; j < 4; j++)
-			ret(i,j) = L.elementAt(0, j)*R.elementAt(i, 0) 
-				 + L.elementAt(1, j)*R.elementAt(i, 1) 
-				 + L.elementAt(2, j)*R.elementAt(i, 2) 
-				 + L.elementAt(3, j)*R.elementAt(i, 3);
+			ret(j,i) = L.elementAt(j, 0)*R.elementAt(0, i) 
+				 + L.elementAt(j, 1)*R.elementAt(1, i) 
+				 + L.elementAt(j, 2)*R.elementAt(2, i) 
+				 + L.elementAt(j, 3)*R.elementAt(3, i);
 
 	return ret;
 
+#endif
 }
 
-vec4 mat4::operator* (const vec4& R) const {
+vec4 mat4::operator* (const vec4& R) {
 
-	vec4 ret;
+#ifdef _WIN32
+	/*static const int mask = 0xF1; // == 1111 0001_2, which means "use x,y,z,w components of the vectors, store result in the lowest word only"
+	mat4 &M = (*this);
+	vec4 v;
+	// dot() can't be used here, since it discards the w component!
+	for (int i = 0; i < 4; i++) 
+		v.data.m128_f32[i] = _mm_dp_ps(M.row(i).data, R.data, mask).m128_f32[0]; 
+	
+	return v;*/
+	
+	// with transposition :D
+/*	mat4 &M = (*this);
+	vec4 v;
+	static const int mask = 0xF1;
+	M.T();
+	for (int i = 0; i < 4; i++) 
+		//v.data.m128_f32[i] = _mm_dp_ps(M.column(i).data, R.data, mask).m128_f32[0];	
+		v.data.m128_f32[i] = _mm_dp_ps(_mm_load_ps(&M.data[i][0]), R.data, mask).m128_f32[0];	
+	
+	M.T();
+	return v;*/
+	// benchmarks (10000000 iterations)
+	// SSE:
+	// dp_ps, operator(), redirect:			about 7.2s
+	// dp_ps, no operator(), redirect:		6.361s
+	// dp_ps, 2 transposes, redirect:		3.743s
+	// dp_ps, 2 transposes, no redirect		1.876s
+	// 
+	// no SSE:
+	// naive, elementAt()					8.839s
+
+	vec4 v;
 	const mat4 &L = (*this);
 
 	for (int i = 0; i < 4; i++)
-		ret(i) = L.elementAt(0, i)*R.elementAt(0)
+		v(i) = L.elementAt(0, i)*R.elementAt(0)
+		       + L.elementAt(1, i)*R.elementAt(1)
+		       + L.elementAt(2, i)*R.elementAt(2)
+		       + L.elementAt(3, i)*R.elementAt(3);
+	
+	return v;
+#elif __linux
+	vec4 v;
+	const mat4 &L = (*this);
+
+	for (int i = 0; i < 4; i++)
+		v(i) = L.elementAt(0, i)*R.elementAt(0)
 		       + L.elementAt(1, i)*R.elementAt(1)
 		       + L.elementAt(2, i)*R.elementAt(2)
 		       + L.elementAt(3, i)*R.elementAt(3);
 
-	return ret;
+	return v;
+#endif
+
+
 }
 
 
@@ -228,16 +344,34 @@ void mat4::identity() {
 
 }
 
-vec4 mat4::row(const int &i) const {
+vec4 mat4::row(const int &i) {
 #ifdef _WIN32
+	
+	// without transposition
 	const mat4 &M = (*this);
-	return vec4(_mm_set_ps(M.elementAt(0,i), M.elementAt(1,i), M.elementAt(2,i), M.elementAt(3,i)));
+	//return vec4(_mm_setr_ps(M.elementAt(0,i), M.elementAt(1,i), M.elementAt(2,i), M.elementAt(3,i)));
+	return vec4(_mm_set_ps(M.elementAt(3,i), M.elementAt(2,i), M.elementAt(1,i), M.elementAt(0,i)));
+	
+	// with transposition 
+/*
+	mat4 &M = (*this);
+	M.T(); 
+	vec4 ret = M.column(i);
+	M.T();
+	return ret;
+	*/
 #elif __linux__
 	return vec4(data[0][i], data[1][i], data[2][i], data[3][i]);
 #endif
+
+	// benchmarks for 100000000 iterations
+	// Two transpositions, no redirection to mat4::column:	15.896s
+	// Two transpositions, redirection to mat4::column:		18.332s
+	// Naive implementation:								14.140s. !	
+
 }
 
-vec4 mat4::column(const int &i) const {
+vec4 mat4::column(const int &i) {
 #ifdef _WIN32
 	// this can be actually optimised further than row(), since the elements are contiguous
 	const mat4 &M = (*this);
@@ -266,9 +400,10 @@ void mat4::assignToRow(const int &row, const vec4& v) {
 	
 	mat4& M = (*this);
 	M.T();
-	M.assignToColumn(row, v);
+	//M.assignToColumn(row, v);
+	_mm_storeu_ps(&M.data[row][0], v.data);
 	M.T();
-
+	
 #elif __linux__
 		mat4& M = (*this);
 	M(0, row) = v.elementAt(0);
@@ -277,6 +412,13 @@ void mat4::assignToRow(const int &row, const vec4& v) {
 	M(3, row) = v.elementAt(3);
 #endif
 
+	// benchmarks for 100000000 iterations:
+	//
+	// Two transpositions, redirect:	14.753s
+	// Two transpositions, no redirect:	12.505s !
+	// Naive							20.772s		
+
+	// - assignToColumn took 2.429s :D
 }
 
 
