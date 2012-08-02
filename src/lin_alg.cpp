@@ -55,10 +55,34 @@ void vec4::operator*=(const float& scalar) {
 
 }
 
+vec4 operator*(const float& scalar, vec4& v) {
+
+	vec4 r(v.data);
+	r *= scalar;
+	return r;
+
+}	
+
+vec4 vec4::operator*(const float& scalar) {
+
+	vec4 v(this->data);
+	v *= scalar;
+	return v;
+
+}
+
+void vec4::operator+=(const vec4 &b) {
+	
+	this->data=_mm_add_ps(data, b.data);
+
+}
+
 vec4 vec4::operator+(const vec4 &b) {
 #ifdef _WIN32
 
-	return vec4(_mm_add_ps(data, b.data));
+	vec4 v = (*this);
+	v += b; 
+	return v;
 	
 #elif __linux__
 
@@ -227,7 +251,6 @@ mat4 mat4::operator* (const mat4& R) {
 		//vec4 b(L.column(i));		
 		const __m128 b = _mm_load_ps(&L.data[i][0]); //vec4 b(L.column(i));
 		for (int j = 0; j < 4; j++) {
-			vec4 a(); //vec4 a(R.column(j));
 			__m128 r = _mm_dp_ps(_mm_load_ps(&R.data[j][0]), b, mask);
 			ret.data[j][i] = r.m128_f32[0];		//ret(j, i) = r.m128_f32[0];
 		}

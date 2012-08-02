@@ -22,7 +22,6 @@
 #include <vector>
 #include <cmath>
 
-
 #include "utils.h"
 #include "definitions.h"
 #include "shader.h"
@@ -63,13 +62,13 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);	// declare wndproc
  *
  * */
 
+
 extern const vertex sliders[];
 
 static float half_WIN_H = (float) WIN_H / 2.0;
 
 static float linewidth = 1.8; 
 static float half_linewidth = linewidth/2.0;
-static float displacement = 0.0;
 
 static texture gradient_texture, font_texture, slider_texture;
 
@@ -86,14 +85,84 @@ static bufferObject waveData, sliderData, waveVertexArray;
 static float zoom = 0.0;
 
 static mat4 wave_projection, wave_modelview;
-static vec4 wave_position, // constructed as zero vectors.
-			wave_view_velocity;	// used to give the notion of inertia to the movement of the camera
 
 namespace Text {
 	mat4 projection_matrix;	// since this will never change.
 	mat4 modelview_matrix(MAT_IDENTITY);
 }
 
+namespace View {
+	static bool mbuttondown = false;
+	static LPPOINT mouse_pos0 = new POINT;
+	static LPPOINT prev_mouse_pos = new POINT;
+	static vec4 wave_pos0;
+	static RECT windowRect;
+	static float dx, dy, prev_dx, prev_dy;
+	
+	static vec4 wave_position, // constructed as zero vectors.
+			wave_view_velocity,// used to give the notion of inertia to the motion of the camera
+			wave_view_velocity_sample1;
+}
+
+static const double frame_interval = 1.0/60.0;
+
+namespace Timer {
+
+	double cpu_freq;	// in kHz
+	bool init();
+	void start();
+
+	__int64 get();
+
+
+#ifdef _WIN32
+	
+	__int64 counter_start;
+
+
+#elif __linux__
+
+	// not yet implemented.
+
+#endif
+	
+	inline double getSeconds() {	
+		return double(Timer::get()-Timer::counter_start)/Timer::cpu_freq;
+	}
+}
+
+#ifdef _WIN32
+bool Timer::init() {
+	LARGE_INTEGER li;
+	if (!QueryPerformanceFrequency(&li)) {
+		printf("Timer initialization failed.\n");
+		return false;
+	}
+	cpu_freq = double(li.QuadPart);	// in Hz. this is subject to dynamic frequency scaling, though
+
+	return true;
+}
+
+void Timer::start() {
+	LARGE_INTEGER li;
+	QueryPerformanceCounter(&li);
+	counter_start = li.QuadPart;
+}
+
+__int64 Timer::get() {
+	LARGE_INTEGER li;
+	QueryPerformanceCounter(&li);
+	return li.QuadPart;
+}
+
+
+#elif __linux__
+
+bool Timer::init() { }// stub
+void Timer::start() { } // stub
+long int Timer::get() { } // stub
+
+#endif
 
 bool texture::make_texture(const char* filename, GLint filter_flag) {
 
@@ -151,51 +220,34 @@ bool texture::make_texture(const char* filename, GLint filter_flag) {
 
 void zoomIn() {
 
-	zoom -= 5.0;
+	zoom -= 8.0;
 
-	if (displacement > 0.0 && displayrange_left == 0) {
+	/*if (displacement > 0.0 && displayrange_left == 0) {
 		displayrange_left += 40;
 	}
 
-	displayrange_right -= 40;
+	displayrange_right -= 40;*/
 
 }
 
 void zoomOut() {
 
-	zoom += 5.0;
+	zoom += 8.0;
 
-	displayrange_left -= 40;
+	/*displayrange_left -= 40;
 	displayrange_right += 40;
-
+	*/
 }
 
 
 void translateLeft() {
 
-	displacement -= 5.0;
 
-	if (!(displacement > 0.0 && displayrange_left == 0)) { 
-
-		displayrange_left += 40;
-
-	}
-
-	displayrange_right += 40;
 
 }
 
 void translateRight() {
 
-	displacement += 5.0;
-
-	if (displayrange_left > 0) {
-
-		displayrange_left -= 40;
-
-	}
-
-	displayrange_right -= 40;
 
 }
 
@@ -557,10 +609,6 @@ bool InitGL()
 
 	printf("%d %d %d\n", uniform_texture1_loc, uniform_projection_loc, uniform_modelview_loc);
 
-	// these two cause problemz
-	//generateWaveVBOs();
-	//generateSliderVBOs();
-
 	return true;
 }
 
@@ -620,8 +668,8 @@ void drawWave() {
 	wave_projection.make_proj_orthographic(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), -1.0f, 1.0f);
 	wave_modelview.identity();
 	// no translation facilities xDD
-	wave_modelview(3,0) = wave_position(0);
-	wave_modelview(3,1) = wave_position(1);
+	wave_modelview(3,0) = View::wave_position(0);
+	wave_modelview(3,1) = View::wave_position(1);
 	glUseProgram(programHandle);
 	glUniform1i(uniform_texture1_loc, 0);
 	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, wave_projection.rawdata());
@@ -719,17 +767,65 @@ void drawText() {
 
 
 }
+inline void control() {
+	
+	// arbitrary timestep
+	static const float dt = 0.8;
+
+	if (View::mbuttondown) {
+			View::prev_dx = View::dx;
+			View::prev_dy = View::dy;
+
+			POINT p;
+			GetCursorPos(&p);
+				
+			//View::dx = -(View::mouse_pos0->x - p.x);
+			//View::dy = -(View::mouse_pos0->y - p.y);
+			
+			View::dx = -(View::prev_mouse_pos->x - p.x);
+			View::dy = -(View::prev_mouse_pos->y - p.y);
+			//printf("%f, %f\n", View::dx, View::dy);
+
+			const float Ddx = View::dx-View::prev_dx;
+			const float Ddy = View::dy-View::prev_dy;
+
+			if (View::dx == 0 && View::dy == 0) {
+				View::wave_view_velocity *= 0.05;
+			}
+			else {
+				View::wave_view_velocity(0) += Ddx/dt;
+				View::wave_view_velocity(1) += Ddy/dt;
+			}
+			// in an attempt to make the velocity vector more "sticky"
+			View::wave_view_velocity_sample1 = 0.5*(View::wave_view_velocity + View::wave_view_velocity_sample1);
+
+			View::wave_position += View::wave_view_velocity*dt;
+
+			*View::prev_mouse_pos = p;
+	}
+
+	else {
+		
+		View::wave_view_velocity *= 0.88;
+		View::wave_view_velocity_sample1 *= 0.88;
+		View::wave_position += View::wave_view_velocity_sample1*dt;
+
+	}
+
+}
 
 inline void draw() {
 
 	glClear(GL_COLOR_BUFFER_BIT);
-
+	control();
 	drawWave();
 	//fdrawWaveVertexArray();
 	drawText();
 	//drawSliders();
 		
 }
+
+
 
 #ifdef _WIN32
 
@@ -932,48 +1028,17 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 
 LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	static bool mbuttondown = false;
-	static LPPOINT mouse_pos0 = new POINT;
-	static vec4 wave_pos0;
-	static RECT windowRect;
-	static float dx, dy, prev_dx, prev_dy;
-
-	if (mbuttondown) {
-				POINT p;
-				GetCursorPos(&p);
-				// this way, no timers are needed (which are always 
-				// unreliable and inaccurate anyway)
-				prev_dx = dx;
-				prev_dy = dy;
-
-				p.x = p.x > windowRect.right ? windowRect.right : p.x;
-				p.x = p.x < windowRect.left ? windowRect.left : p.x;
-				p.y = p.y < windowRect.top ? windowRect.top : p.y;
-				p.y = p.y > windowRect.bottom ? windowRect.bottom : p.y;
-				
-				dx = -(mouse_pos0->x - p.x);
-				dy = -(mouse_pos0->y - p.y);
-				
-				float Ddx = dx-prev_dx;
-				float Ddy = dy-prev_dy;
-
-				if (Ddx == 0 && Ddy == 0) {
-					wave_view_velocity(0) += Ddx;
-					wave_view_velocity(1) += Ddy;
-				}
-
-				wave_position=vec4(wave_pos0(0) + dx, wave_pos0(1) + dy, 0, 1.0);
-	}
 
 	switch(uMsg)
 	{
 		case WM_LBUTTONDOWN:
 			{
-				GetWindowRect(hWnd, &windowRect);
-				ClipCursor(&windowRect);
-				GetCursorPos(mouse_pos0);
-				wave_pos0 = wave_position;
-				mbuttondown = true;
+				GetWindowRect(hWnd, &View::windowRect);
+				ClipCursor(&View::windowRect);
+				GetCursorPos(View::mouse_pos0);
+				*View::prev_mouse_pos = *View::mouse_pos0;
+				View::wave_pos0 = View::wave_position;
+				View::mbuttondown = true;
 				
 				ShowCursor(FALSE);
 				ShowCursor(FALSE);
@@ -987,7 +1052,17 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				ShowCursor(TRUE);	// for some very odd reason, two calls are needed to
 				ShowCursor(TRUE);	// accomplish the task :D
 
-				mbuttondown=false;
+				View::mbuttondown=false;
+				return 0;
+			}
+		case WM_MOUSEWHEEL:
+			{
+				int fwKeys = GET_KEYSTATE_WPARAM(wParam);
+				int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+				if (delta < 0) {
+					zoomOut();
+				} else if (delta > 0) { zoomIn(); }
+
 				return 0;
 			}
 		case WM_KEYDOWN:
@@ -1029,7 +1104,7 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 		case WM_CLOSE:
 			{
-				delete mouse_pos0;
+				delete View::mouse_pos0;
 				PostQuitMessage(0);
 				return 0;
 			}
@@ -1040,6 +1115,27 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 }
 
 
+void initializeStrings() {
+
+	// NOTE: it wouldn't be such a bad idea to just take in a vector 
+	// of strings, and to generate one single static VBO for them all.
+
+	std::string string1 = "Filename: resources/asdfmono.wav";
+	strings.push_back(wpstring(string1, string1.length(), 15, 15));
+
+	std::string frames("Frames per second: ");
+	strings.push_back(wpstring(frames, frames.length(), WIN_W-180, WIN_H-20));
+
+	// reserved index 2 for FPS display.
+	std::string initialfps = "00.000";
+	strings.push_back(wpstring(initialfps, initialfps.length(), WIN_W-50, WIN_H-20));
+	
+	char buf[16];
+	sprintf(buf, "%d", BUFSIZE);
+	const std::string buffer_size(buf);
+	const std::string bufinfostring = "Buffer size / # of samples: " + buffer_size;
+	strings.push_back(wpstring(bufinfostring, bufinfostring.length(), 15, WIN_H-20));
+}
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
@@ -1064,11 +1160,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	}
 
 	int running=1;
-
 	const char* filename = "resources/asdfmono.wav";
-
-	std::string string1 = std::string("Filename: ") + std::string(filename);
-	strings.push_back(wpstring(string1, 15, 15));
 
 	std::ifstream input(filename, std::ios::binary);
 
@@ -1083,7 +1175,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	// the readSampleData_int16 function actually reads the whole file.
 	float *samples = readSampleData_int16(input, &num_samples);	// presuming 16-bit, little endian
 
-	num_samples = (num_samples < BUFSIZE) ? num_samples : (std::size_t) BUFSIZE;
+	BUFSIZE=num_samples;
 
 	triangle *triangles = bakeWaveVertexArray(samples, num_samples);
 	
@@ -1099,9 +1191,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		tmpx+=step;
 	}
 	
+	initializeStrings();
+
 	generateWaveVBOs();
 	//generateSliderVBOs();
 	delete [] samples;
+
+	Timer::init();
 
 	while(!done)
 	{
@@ -1141,8 +1237,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 					keys[VK_LEFT] = false;
 				}
 
+				Timer::start();
 				draw();
+				while (Timer::getSeconds() < frame_interval) {
+					// Do as much as possible here!
+				}
+
+				double t_interval = Timer::getSeconds();
+				double fps = 1/t_interval;
+				char buffer[8];
+				sprintf(buffer, "%4.3f", fps);
+				strings[2].updateString(buffer);
 				SwapBuffers(hDC);
+
 
 			}
 		}

@@ -9,9 +9,21 @@
 #include "precalculated_texcoords.h"
 #include "lin_alg.h"
 
+struct wpstring { 
+
+	std::string text;
+	const std::size_t length;	// not really needed
+	int x, y;
+	bufferObject bufObj;
+	wpstring(const std::string &text, const std::size_t& str_len, GLuint x, GLuint y);
+	void updateString(const std::string &newtext);
+	glyph* generateGlyphs();
+	bufferObject generateTextObject();
+
+};
+
 GLuint texcoord_index_from_char(char a);
 
-bufferObject generateTextObject(std::string& text, GLuint x, GLuint y);
 
 
 

@@ -26,12 +26,19 @@ struct vec4 {
 	vec4(const float * const a);
 	float& operator() (const int& row);	
 	float elementAt(const int& row) const;	
+
+	// see also: vec4 operator*(const float& scalar, vec4& v);
+
 	void operator*=(const float& scalar);
+	vec4 operator*(const float& scalar);
+	void operator+=(const vec4& b);
 	vec4 operator+(const vec4& b);
 
 	void print();
 
 };
+
+vec4 operator*(const float& scalar, vec4& v);
 
 // NOTE: the dot function doesn't perform an actual dot product computation of two R^4 vectors,
 // as the type of the arguments misleadingly suggests. Instead it computes a truncated dot product,
@@ -44,6 +51,8 @@ float dot(const vec4 &a, const vec4 &b);
 // MULPS:			3.0s
 
 vec4 cross(const vec4 &a,  const vec4 &b);
+
+
 
 #ifdef _WIN32
 __declspec(align(64))

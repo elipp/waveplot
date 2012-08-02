@@ -6,24 +6,45 @@ GLuint texcoord_index_from_char(char a) {
 
 }
 
-wpstring::wpstring(std::string& text, GLuint x, GLuint y) {
+wpstring::wpstring(const std::string& text, const std::size_t& str_len, GLuint x, GLuint y)  : length(str_len) {
 
-	bufObj = generateTextObject(text, x, y);
-	length = text.length();
+	this->text = text;
+	this->x = x;
+	this->y = y;
+	bufObj = generateTextObject();
 }
 
 
-bufferObject generateTextObject(std::string& text, GLuint x, GLuint y) {
+void wpstring::updateString(const std::string &newtext) {
+	
+	const std::size_t new_len = newtext.length();
+	if (new_len > length) {	
+		const std::string newsub = newtext.substr(0, length);
+		this->text = newsub;
+	}
+	else if (new_len <= length) {
+		const std::size_t diff = length - new_len;
+		std::string newcopy = newtext;
+		newcopy.append(diff, '0');
+		this->text = newcopy;
+	}
+	
+	glyph *newglyphs = generateGlyphs();	
+	glBindBuffer(GL_ARRAY_BUFFER, bufObj.VBOid);
+	glBufferData(GL_ARRAY_BUFFER, length*sizeof(glyph), newglyphs, GL_STATIC_DRAW);
 
-	const std::size_t str_len = text.length();
+	delete [] newglyphs;
+}
 
-	glyph *glyphs = new glyph[str_len];
+glyph* wpstring::generateGlyphs() {
+	
+	glyph *glyphs = new glyph[length];
 
 	float a;
 	
 	unsigned int i = 0,j = 0;
 
-	for (; i < str_len; i++) {
+	for (; i < length; i++) {
 		a = i * 7.0;	// the distance between two consecutive letters.
 		for (j=0; j < 4; j++) {
 			
@@ -33,6 +54,14 @@ bufferObject generateTextObject(std::string& text, GLuint x, GLuint y) {
 			glyphs[i].vertices[j].v = glyph_texcoords[texcoord_index_from_char(text[i])][2*j+1];
 		}
 	}
+	return glyphs;
+
+}
+
+bufferObject wpstring::generateTextObject() {
+	
+	const std::size_t str_len = text.length();
+	glyph *glyphs = generateGlyphs();
 	bufferObject textBufObj;
 	glGenBuffers(1, &textBufObj.VBOid);
 	glBindBuffer(GL_ARRAY_BUFFER, textBufObj.VBOid);
@@ -45,8 +74,8 @@ bufferObject generateTextObject(std::string& text, GLuint x, GLuint y) {
 	glGenBuffers(1, &textBufObj.IBOid);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, textBufObj.IBOid);
 
-	i = 0;
-	j = 0;
+	unsigned int i = 0;
+	unsigned int j = 0;
 	
 	// I really doubt any strings of length 10922 or more will ever be provided, so GLushort it is. 
 	GLushort *indices = new GLushort[(6*str_len)];	// three indices per triangle, two triangles per line, BUFSIZE lines

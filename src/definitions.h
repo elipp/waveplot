@@ -15,7 +15,7 @@
 static const unsigned int WIN_W = 1280; 
 static const unsigned int WIN_H = 960;
 
-static const unsigned int BUFSIZE = 65536;	// refers to sample count, not actual buffer size
+static unsigned int BUFSIZE = 4*65536;	// refers to sample count, not actual buffer size
 
 #elif __linux__
 
@@ -111,15 +111,6 @@ struct bufferObject {
 	GLuint IBOid;
 
 };
-
-struct wpstring { 
-
-	std::size_t length;
-	bufferObject bufObj;
-	wpstring(std::string &text, GLuint x, GLuint y);
-
-};
-
 
 
 #endif
