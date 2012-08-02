@@ -274,7 +274,7 @@ vec4 mat4::operator* (const vec4& R) {
 	return v;*/
 	
 	// with transposition :D
-/*	mat4 &M = (*this);
+	mat4 &M = (*this);
 	vec4 v;
 	static const int mask = 0xF1;
 	M.T();
@@ -283,7 +283,7 @@ vec4 mat4::operator* (const vec4& R) {
 		v.data.m128_f32[i] = _mm_dp_ps(_mm_load_ps(&M.data[i][0]), R.data, mask).m128_f32[0];	
 	
 	M.T();
-	return v;*/
+	return v;
 	// benchmarks (10000000 iterations)
 	// SSE:
 	// dp_ps, operator(), redirect:			about 7.2s
@@ -294,16 +294,6 @@ vec4 mat4::operator* (const vec4& R) {
 	// no SSE:
 	// naive, elementAt()					8.839s
 
-	vec4 v;
-	const mat4 &L = (*this);
-
-	for (int i = 0; i < 4; i++)
-		v(i) = L.elementAt(0, i)*R.elementAt(0)
-		       + L.elementAt(1, i)*R.elementAt(1)
-		       + L.elementAt(2, i)*R.elementAt(2)
-		       + L.elementAt(3, i)*R.elementAt(3);
-	
-	return v;
 #elif __linux
 	vec4 v;
 	const mat4 &L = (*this);
