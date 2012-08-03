@@ -15,7 +15,8 @@
 static const unsigned int WIN_W = 1280; 
 static const unsigned int WIN_H = 960;
 
-static unsigned int BUFSIZE = 4*65536;	// refers to sample count, not actual buffer size
+static std::size_t BUFSIZE = 4*65536;	// refers to sample count, not actual buffer size
+static const std::size_t BUFSIZE_MAX = 128*65536;
 
 #elif __linux__
 
@@ -26,7 +27,7 @@ static const unsigned int BUFSIZE = 10000;
 
 #endif
 
-static const float aspect_ratio = WIN_W/WIN_H;
+static const double aspect_ratio = double(WIN_W)/double(WIN_H);
 
 
 struct WAVHEADERINFO {

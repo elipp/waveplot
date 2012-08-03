@@ -62,6 +62,7 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);	// declare wndproc
  *
  * */
 
+static const std::string input_filename("resources/asdfmono.wav");
 
 extern const vertex sliders[];
 
@@ -83,6 +84,7 @@ static GLuint VertexShaderId, FragmentShaderId, programHandle, uniform_texture1_
 static bufferObject waveData, sliderData, waveVertexArray;
 
 static float zoom = 0.0;
+static const float zoom_step = 10.0, zoom_min = -64*zoom_step, zoom_max = 24*zoom_step;
 
 static mat4 wave_projection, wave_modelview;
 
@@ -220,7 +222,7 @@ bool texture::make_texture(const char* filename, GLint filter_flag) {
 
 void zoomIn() {
 
-	zoom -= 8.0;
+	zoom = zoom <= zoom_min ? zoom_min : zoom - zoom_step;
 
 	/*if (displacement > 0.0 && displayrange_left == 0) {
 		displayrange_left += 40;
@@ -231,8 +233,8 @@ void zoomIn() {
 }
 
 void zoomOut() {
-
-	zoom += 8.0;
+	
+	zoom = zoom >= zoom_max ? zoom_max : zoom + zoom_step;
 
 	/*displayrange_left -= 40;
 	displayrange_right += 40;
@@ -290,137 +292,120 @@ void generateWaveVertexArray(triangle* triangles, std::size_t samplecount) {
 
 }
 
-/*
- * The bakeWaveVertexArray compiles a vertex array of triangle primitives
- * from the input sample data. Rationale:
- *
- * 1) the i915 (Intel GMA) mesa OpenGL-driver apparently doesn't 
- * support GL_UNSIGNED_INT as its index format specifier,
- *
- * 2) the line segments currently share no common vertices (due to poor design),
- * 	- the index buffers obey a strict, predictable sequence. 
- *
- * 3) and glDrawArrays supports rendering by range 
- *
- * this was chosen as the linux implementation. The windows glDrawElements
- * implementation  shall be revamped shortly (to support smooth
- * line segment seams, and thus shared vertices as well)
- *
- *
- * NOTE: as the additional, "smoothing" adjustments (k -> kx, ky) have been introduced,
- * this has become computationally intensive. Consider implementing it in OpenCL.
- */
+// The drawback of this algorithm is that some of the
+// really "tight turns" in the waveform produce unwanted artifacts.
 
-triangle* bakeWaveVertexArray(float* samples, const std::size_t& samplecount) {
-
-	const std::size_t triangle_count = (samplecount-1)*2;
+triangle *bakeWaveVertexArrayUsingLineIntersections(float* samples, const std::size_t& samplecount) {
+	
+	const std::size_t triangle_count = 2*samplecount-1;
 	triangle* triangles = new triangle[triangle_count];
-	const double step = 1.0/8.0;
-	double tmpx = 0.0;
+	static const double dx = 1.0/8.0;
+	static const float h = half_linewidth;
 
+	float x1 = 0.0;
+	float y1 = half_WIN_H*samples[0] + half_WIN_H;
 
-	// The first and the last triangles are different from the rest, as they don't have a pair
+	float x2 = x1 + dx;
+	float y2 = half_WIN_H*samples[1] + half_WIN_H;
 
-	float x1 = tmpx;
-	float y1 = half_WIN_H*samples[0] + WIN_H;
+	float x3 = x2 + dx;
+	float y3 = half_WIN_H*samples[2] + half_WIN_H;
 
-
-	float x2 = tmpx + step;
-	float y2 = half_WIN_H*samples[1] + WIN_H;
-
-	float x3 = x2 + step;
-	float y3 = half_WIN_H*samples[2] + WIN_H;
-
-	y1 = (WIN_H - y1);	// consider these
-	y2 = (WIN_H - y2);
-	y3 = (WIN_H - y3);
+	float k1 = (y2-y1)/dx;
+	float alpha_1 = atan(k1);
 	
-	float alpha = atan(step/(y2-y1));
-	float beta = atan(step/(y3-y2));
+	float k2 = (y3-y2)/dx;
+	float alpha_2 = atan(k2);
 
-	float xparm = half_linewidth*cos(alpha);	// in order to get the actual, rendered ret_line width to match with the specified one,
-	float yparm = -half_linewidth*sin(alpha);	// the minus is needed since in OpenGL the y-axis is inverted
+	float px_2 = h*sin(alpha_1);
+	float py_2 = h*cos(alpha_1);
 
-	float gamma_over_2 = 0.5*(M_PI - alpha - beta);
-
-	float k = half_linewidth*tan(gamma_over_2);
-
-	float kx = k*cos(alpha);
-	float ky = -k*sin(alpha);			// this too (OpenGL y-axis)
-
-	// lines.push_back(make_line(tmpx, half_WIN_H*samples[i] + WIN_H, tmpx + step, half_WIN_H*samples[i+1] +  WIN_H));
-	
-	triangles[0].v1 = vertex(x2-xparm+kx, y2 - yparm - ky, 1.0, 0.0);
-	triangles[0].v2 = vertex(x2+xparm-kx, y2 + yparm + ky, 1.0, 1.0);
+	triangles[0].v1 = vertex(x2+px_2, WIN_H - (y2-py_2), 1.0, 0.0);
+	triangles[0].v2 = vertex(x2-px_2, WIN_H - (y2+py_2), 1.0, 1.0);
 	triangles[0].v3 = vertex(x1, y1, 0.0, 0.5);
-
-	tmpx += step;
-
+	
 	int i = 1, j = 1;
 
-	while (i < triangle_count-1) 
+	float x2_c, y2_c;
+	float dk;
+	float px_3, py_3;
+	float res_x2_1, res_y2_1, res_x2_2, res_y2_2;
+
+	while (i < triangle_count - 1) 
 	{
+		//    y - y0 = k(x - x0)
+		// =>      y = k(x - x0) + y0
 
-	/*	x1 = tmpx;
-		y1 = half_WIN_H*samples[j] + WIN_H; // this could be just copied from the previous result
-		x2 = tmpx + step;
-		y2 = half_WIN_H*samples[j+1] + WIN_H;	// as well as this
-		x3 = x2 + step;
-		y3 = half_WIN_H*samples[j+2] + WIN_H; 
+		x1 = x2; y1 = y2;
+		x2 = x3; y2 = y3;
+		x3 = x2+dx;
+		y3 = half_WIN_H*samples[j+2] + half_WIN_H;
+
+		k1 = (y2-y1)/dx;	// dx = constant
+		alpha_1 = atan(k1);	// can be copied from previous result
+							// also, this temporary isn't necessary
+	
+		k2 = (y3-y2)/dx;
+		alpha_2 = atan(k2);
+
+		px_2 = h*sin(alpha_1);
+		py_2 = h*cos(alpha_1);
 		
-		THIS IS PREMATURE OPTIMIZATION AT ITS BEST XDDD
-		*/
+		px_3 = h*sin(alpha_2);
+		py_3 = h*cos(alpha_2);
+
+		dk = k1-k2;
+
+		if (fabs(dk) < 0.3) {
+
+			res_x2_1 = x2 - px_2;
+			res_y2_1 = y2 + py_2;
+
+			res_x2_2 = x2 + px_2;
+			res_y2_2 = y2 - py_2;
+
+		}
+
+		else {
+			
+			x2_c = (x2 - px_2);
+			y2_c = (y2 + py_2);
+			
+			res_x2_1 = (k1*x2_c - y2_c - k2*(x3-px_3) + (y3+py_3))/dk;
+			res_y2_1 = k1*(res_x2_1 - x2_c) + y2_c;
 		
-		x1 = x2;
-		y1 = y2;
-		x2 = x3;
-		y2 = y3;
+			x2_c = (x2 + px_2);
+			y2_c = (y2 - py_2);
 
-		x3 = x2+step;
-		y3 = half_WIN_H*samples[j+2] + WIN_H;
+			res_x2_2 = (k1*x2_c - y2_c - k2*(x3+px_3) + (y3-py_3))/dk;
+			res_y2_2 = k1*(res_x2_2 - x2_c) + y2_c;
+		
+		}
+		
+		// invert computed y values
 
-		/*y1 = (WIN_H - y1);	// conside4r these
-		y2 = (WIN_H - y2); */
-		y3 = (WIN_H - y3);
-
-		alpha = atan(step/(y2-y1));	// also could take the previous value :D
-		beta = atan(step/(y3-y2));
-
-		xparm = half_linewidth*cos(alpha);
-		yparm = -half_linewidth*sin(alpha);	// the minus is needed since in OpenGL the y-axis is inverted
-		gamma_over_2 = 0.5*(M_PI - alpha - beta);
-
-		k = half_linewidth*tan(gamma_over_2);
-
-
-		kx = k*cos(alpha);
-		ky = -k*sin(alpha);			// this too has a minus (OpenGL y-axis)
-
-		triangles[i].v1 = triangles[i-1].v2;	// TODO: provide array schematic
+		res_y2_1 = (WIN_H - res_y2_1);
+		res_y2_2 = (WIN_H - res_y2_2);	
+	
+		triangles[i].v1 = triangles[i-1].v2;
 		triangles[i].v2 = triangles[i-1].v1;
-		triangles[i].v3 = vertex(x2+xparm, y2-yparm, 1.0, 1.0);
+		triangles[i].v3 = vertex(res_x2_1, res_y2_1, 1.0, 1.0);
 
-		triangles[i+1].v1 = vertex(x2-xparm+kx, y2-yparm-ky, 1.0, 0.0);
+		triangles[i+1].v1 = vertex(res_x2_2, res_y2_2, 1.0, 0.0);
 		triangles[i+1].v2 = triangles[i].v3;
 		triangles[i+1].v3 = triangles[i].v2;
-
-		tmpx += step;
-
+		
 		++j;
 		i += 2;
 
 	}
-	// as stated above, the last triangle is also different
 
 	triangles[triangle_count-1].v1 = triangles[triangle_count-2].v2;	
 	triangles[triangle_count-1].v2 = triangles[triangle_count-2].v1;	
-	triangles[triangle_count-1].v3 = vertex(tmpx+step, half_WIN_H*samples[samplecount-1], 1.0, 0.5);
+	triangles[triangle_count-1].v3 = vertex(triangles[triangle_count-2].v1.x+dx, half_WIN_H*samples[samplecount-1] + half_WIN_H, 1.0, 0.5);
 
 	return triangles;
 }
-
-
-
 
 void generateWaveVBOs() {
 
@@ -517,7 +502,7 @@ bool InitGL()
 
 	printf("\nOpenGL version information:\n%s\n\n", version);
 
-	bool gradient_texture_valid = gradient_texture.make_texture("textures/texture.bmp", GL_LINEAR);
+	bool gradient_texture_valid = gradient_texture.make_texture("textures/gradient.bmp", GL_LINEAR);	// solid_color_test.bmp
 	bool font_texture_valid = font_texture.make_texture("textures/dina_all.bmp", GL_NEAREST);
 	bool slider_texture_valid = slider_texture.make_texture("textures/slider.bmp", GL_NEAREST);
 
@@ -574,7 +559,8 @@ bool InitGL()
 	delete [] vert_shader;
 	delete [] frag_shader;
 
-	
+	Text::projection_matrix.make_proj_orthographic(0.0, WIN_W, WIN_H, 0.0, -1.0, 1.0);
+	Text::modelview_matrix.identity();
 
 
 #ifdef _WIN32
@@ -606,6 +592,10 @@ bool InitGL()
 		return false;
 
 	}
+
+	//wglSwapIntervalEXT(0);
+
+	// in terms of smoothness, hardware "Always on" VSYNC yields the best results (at least for me, Radeon HD 5770)
 
 	printf("%d %d %d\n", uniform_texture1_loc, uniform_projection_loc, uniform_modelview_loc);
 
@@ -665,7 +655,7 @@ void drawWave() {
 
 #endif
 
-	wave_projection.make_proj_orthographic(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), -1.0f, 1.0f);
+	wave_projection.make_proj_orthographic(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom*aspect_ratio), -(zoom*aspect_ratio), -1.0f, 1.0f);
 	wave_modelview.identity();
 	// no translation facilities xDD
 	wave_modelview(3,0) = View::wave_position(0);
@@ -693,8 +683,33 @@ void drawWave() {
 
 void drawWaveVertexArray() {
 
-	glBindBuffer(GL_ARRAY_BUFFER, waveVertexArray.VBOid); 
+#ifdef _WIN32
 
+	glBindBuffer(GL_ARRAY_BUFFER, waveVertexArray.VBOid);
+	
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
+
+	wave_projection.make_proj_orthographic(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), -1.0f, 1.0f);
+	wave_modelview.identity();
+
+	wave_modelview(3,0) = View::wave_position(0);
+	wave_modelview(3,1) = View::wave_position(1);
+
+	glUseProgram(programHandle);
+	glUniform1i(uniform_texture1_loc, 0);
+	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, wave_projection.rawdata());
+	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, wave_modelview.rawdata());
+		
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
+
+	glDrawArrays(GL_TRIANGLES, 0, BUFSIZE*2-1);
+
+#elif __linux__
+
+	// this code is crap
+	glBindBuffer(GL_ARRAY_BUFFER, waveVertexArray.VBOid); 
 	glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
@@ -702,7 +717,7 @@ void drawWaveVertexArray() {
 	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 	glUniform1i(uniform_texture1_loc, 0);
 
-/*	glMatrixMode(GL_PROJECTION);
+	glMatrixMode(GL_PROJECTION);
 	
 	glOrtho(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), 0.0f, 1.0f);
 
@@ -711,7 +726,7 @@ void drawWaveVertexArray() {
 	glLoadIdentity();
 	glTranslatef(displacement, 0.0, 0.0);
 
-	glUseProgram(programHandle);*/
+	glUseProgram(programHandle);
 
 	glActiveTexture(GL_TEXTURE0);
 	glClientActiveTexture(GL_TEXTURE0);
@@ -721,11 +736,11 @@ void drawWaveVertexArray() {
 
 	glDisableClientState(GL_VERTEX_ARRAY);
 	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-
+#endif
 }
 
 void drawText() {
-
+	
 	static std::vector<wpstring>::const_iterator iter;
 
 	// damn static variables. ;-)
@@ -743,10 +758,7 @@ void drawText() {
 		glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
 		glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
 #endif
-		Text::projection_matrix.make_proj_orthographic(0.0, WIN_W, WIN_H, 0.0, -1.0, 1.0);
-		Text::modelview_matrix.identity();
-
-
+	
 		glUseProgram(programHandle);
 		glUniform1i(uniform_texture1_loc, 0);
 		
@@ -790,11 +802,12 @@ inline void control() {
 			const float Ddy = View::dy-View::prev_dy;
 
 			if (View::dx == 0 && View::dy == 0) {
-				View::wave_view_velocity *= 0.05;
+				View::wave_view_velocity *= 0.1;
 			}
 			else {
-				View::wave_view_velocity(0) += Ddx/dt;
-				View::wave_view_velocity(1) += Ddy/dt;
+				// with the exp term, the sensitivity now scales with zoom level
+				View::wave_view_velocity(0) += (Ddx/dt)*exp(zoom/290.0);	
+				View::wave_view_velocity(1) += (Ddy/dt)*exp(zoom/290.0);
 			}
 			// in an attempt to make the velocity vector more "sticky"
 			View::wave_view_velocity_sample1 = 0.5*(View::wave_view_velocity + View::wave_view_velocity_sample1);
@@ -817,9 +830,9 @@ inline void control() {
 inline void draw() {
 
 	glClear(GL_COLOR_BUFFER_BIT);
-	control();
-	drawWave();
-	//fdrawWaveVertexArray();
+
+	//drawWave();
+	drawWaveVertexArray();
 	drawText();
 	//drawSliders();
 		
@@ -1120,14 +1133,14 @@ void initializeStrings() {
 	// NOTE: it wouldn't be such a bad idea to just take in a vector 
 	// of strings, and to generate one single static VBO for them all.
 
-	std::string string1 = "Filename: resources/asdfmono.wav";
+	std::string string1 = "Filename: " + input_filename;
 	strings.push_back(wpstring(string1, string1.length(), 15, 15));
 
 	std::string frames("Frames per second: ");
 	strings.push_back(wpstring(frames, frames.length(), WIN_W-180, WIN_H-20));
 
 	// reserved index 2 for FPS display.
-	std::string initialfps = "00.000";
+	std::string initialfps = "00.00";
 	strings.push_back(wpstring(initialfps, initialfps.length(), WIN_W-50, WIN_H-20));
 	
 	char buf[16];
@@ -1160,12 +1173,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	}
 
 	int running=1;
-	const char* filename = "resources/asdfmono.wav";
 
-	std::ifstream input(filename, std::ios::binary);
+	std::ifstream input(input_filename, std::ios::binary);
 
 	if (!input.is_open()) {	
-		printf("Couldn't open resource file %s\n", filename);
+		printf("Couldn't open resource file %s\n", input_filename.c_str());
 		return 1;
 
 	}
@@ -1175,11 +1187,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	// the readSampleData_int16 function actually reads the whole file.
 	float *samples = readSampleData_int16(input, &num_samples);	// presuming 16-bit, little endian
 
-	BUFSIZE=num_samples;
+	if (num_samples > BUFSIZE_MAX) {
+		BUFSIZE=BUFSIZE_MAX;
+	} else { BUFSIZE = num_samples; }
 
-	triangle *triangles = bakeWaveVertexArray(samples, num_samples);
-	
-	generateWaveVertexArray(triangles, num_samples);
+	triangle *triangles = bakeWaveVertexArrayUsingLineIntersections(samples, BUFSIZE);
+	generateWaveVertexArray(triangles, BUFSIZE);
 	delete [] triangles;
 
 	float tmpx = 0.0;
@@ -1201,6 +1214,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	while(!done)
 	{
+
 		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 		{
 			if(msg.message == WM_QUIT)
@@ -1237,19 +1251,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 					keys[VK_LEFT] = false;
 				}
 
-				Timer::start();
-				draw();
-				while (Timer::getSeconds() < frame_interval) {
-					// Do as much as possible here!
-				}
-
+				control();
+				draw(); 
+				SwapBuffers(hDC);
+	
 				double t_interval = Timer::getSeconds();
+				
+				Timer::start();	// why didn't i think of this earlier :D
+				
+
 				double fps = 1/t_interval;
 				char buffer[8];
-				sprintf(buffer, "%4.3f", fps);
-				strings[2].updateString(buffer);
-				SwapBuffers(hDC);
-
+				sprintf(buffer, "%4.2f", fps);
+				std::string fps_str(buffer);
+				if (strings[2].text != fps_str) {
+					strings[2].updateString(buffer);
+				}
+				
 
 			}
 		}
