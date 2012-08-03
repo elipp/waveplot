@@ -1,3 +1,11 @@
-waveplot current status:
-
-All versions require GL >= 2.0 support (glCreateShader etc.)
+waveplot: 
+	OpenGL .wav file waveform monitor for OpenGL 2.0+ compatible devices.
+	No deprecated OpenGL functionality is used (i.e. no matrix stack or fixed-function rendering calls). 
+	The shaders use GLSL 330.
+	
+	Features:
+		- a highly tuned collection of linear algebra-related functions
+		  using MSVC intrinsics (up to SSE4: DPPS)
+		- "inertial" mouse navigation, heads-up display
+	
+	Currently, only the Windows version compiles and works. 
