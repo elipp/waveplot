@@ -56,11 +56,12 @@ vec4 cross(const vec4 &a,  const vec4 &b);
 
 #ifdef _WIN32
 __declspec(align(64))
-#endif
-struct mat4 {	// column major :D
-
-
+struct mat4 {	// column major 
+	__m128 data[4];	// each holds a column vector
+#elif __linux__
+struct mat4 {
 	float data[4][4];
+#endif
 	float& operator() (const int &column, const int &row);	// reference & non-const -> modifiable by subscript
 	float elementAt(const int &column, const int &row) const;
 	mat4 operator* (const mat4 &R);	// the other matrix needs to be transposed, hence no const specifier
@@ -76,6 +77,7 @@ struct mat4 {	// column major :D
 	mat4();
 	mat4(const int main_diagonal_val);
 
+	void zero();
 	void identity();	// "in place identity"
 	void T();			// "in place transpose"
 	
@@ -86,12 +88,14 @@ struct mat4 {	// column major :D
 	//		_mm_set_ps/_mm_store_ps:	5.6 s.
 	//		_mm_set_ps/_mm_storeu_ps:	5.6 s.	identical (?)
 	//		_mm_loadu_ps/_mm_store_ps:	4.8 s.	Nice!
+	//	
+	// NEW bare edition:				2.2 s. :P
 	//
 	// non-SSE:
 	//		the elif linux version:		150.2 s. ! :D
 
 
-	const float *rawdata() const;	// returns a column-major float[16]
+	void *rawdata() const;	// returns a column-major float[16]
 	void printRaw() const;	// prints elements in actual memory order.
 
 	void print();

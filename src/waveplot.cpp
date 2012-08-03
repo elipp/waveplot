@@ -662,8 +662,8 @@ void drawWave() {
 	wave_modelview(3,1) = View::wave_position(1);
 	glUseProgram(programHandle);
 	glUniform1i(uniform_texture1_loc, 0);
-	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, wave_projection.rawdata());
-	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, wave_modelview.rawdata());
+	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)wave_projection.rawdata());
+	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)wave_modelview.rawdata());
 	
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, waveData.IBOid);
 
@@ -698,8 +698,8 @@ void drawWaveVertexArray() {
 
 	glUseProgram(programHandle);
 	glUniform1i(uniform_texture1_loc, 0);
-	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, wave_projection.rawdata());
-	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, wave_modelview.rawdata());
+	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)wave_projection.rawdata());
+	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)wave_modelview.rawdata());
 		
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
@@ -762,8 +762,8 @@ void drawText() {
 		glUseProgram(programHandle);
 		glUniform1i(uniform_texture1_loc, 0);
 		
-		glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, Text::projection_matrix.rawdata());
-		glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, Text::modelview_matrix.rawdata());
+		glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)Text::projection_matrix.rawdata());
+		glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)Text::modelview_matrix.rawdata());
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (*iter).bufObj.IBOid);
 

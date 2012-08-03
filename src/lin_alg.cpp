@@ -183,19 +183,12 @@ vec4 cross(const vec4 &a, const vec4 &b) {
 mat4::mat4() {
 #ifdef _WIN32
 
-	static const __m128 a;
-	static const __m128 zero = _mm_xor_ps(a,a);
-	_mm_store_ps(&data[0][0], zero);	// storeu not needed, __m128 is aligned
-	_mm_store_ps(&data[1][0], zero);	
-	_mm_store_ps(&data[2][0], zero);	
-	_mm_store_ps(&data[3][0], zero);	
-	
-	// benchmarks (for a constructor? :D): 100000000 iterations:
-	// store(xorps) with pointer crap:	2.998s
-	// memset:							3.786s
-	// store(setzero):					2.742s 
-	// store(xorps) with stupid redund. 2.747s
-	// store(xorps) with precalc. zero	2.680s
+#ifdef NDEBUG
+	const __m128 zero;	// no need to initialize; only being used for _mm_xor_ps(zero,zero), which always returns a 0-vector
+#else
+	const __m128 zero = _mm_setzero_ps();
+#endif
+	data[0] = data[1] = data[2] = data[3] = _mm_xor_ps(zero,zero);
 
 #elif __linux__
 
@@ -203,21 +196,34 @@ mat4::mat4() {
 #endif
 
 }
-mat4::mat4(const float *data) {
-
+mat4::mat4(const float *arr) {
+#ifdef _WIN32
+	data[0] = _mm_loadu_ps(arr);
+	data[1] = _mm_loadu_ps(arr + 4);	
+	data[2] = _mm_loadu_ps(arr + 8);	
+	data[3] = _mm_loadu_ps(arr + 12);	
+#elif __linux__
 	memcpy(this->data, data, (4*4)*sizeof(float));
+#endif
 
 }
 
 mat4::mat4(const int main_diagonal_val) {
-
+#ifdef _WIN32
 	mat4 &a = (*this);
-	memset(a.data, 0, sizeof(a.data));
-
+	a.zero();
 	a(0,0)=main_diagonal_val;
 	a(1,1)=main_diagonal_val;
 	a(2,2)=main_diagonal_val;
 	a(3,3)=main_diagonal_val;
+#elif __linux__
+	memset(a.data, 0, sizeof(a.data));
+	a(0,0)=main_diagonal_val;
+	a(1,1)=main_diagonal_val;
+	a(2,2)=main_diagonal_val;
+	a(3,3)=main_diagonal_val;
+#endif
+
 }
 
 mat4 mat4::operator* (const mat4& R) {
@@ -236,34 +242,18 @@ mat4 mat4::operator* (const mat4& R) {
 	
 	// calculate using dot products (_mm_dp_ps)
 	
-	// next optimization would be to skip vec4 construction altogether :D
-	
-	/*for (int i = 0; i < 4; i++) {
-		//vec4 b(L.column(i));		
-		vec4 b(_mm_load_ps(&L.data[i][0])); //vec4 b(L.column(i));
-		for (int j = 0; j < 4; j++) {
-			vec4 a(_mm_load_ps(&R.data[j][0])); //vec4 a(R.column(j));
-			__m128 r = _mm_dp_ps(a.data, b.data, mask);
-			ret.data[j][i] = r.m128_f32[0];		//ret(j, i) = r.m128_f32[0];
-		}
-	}*/
+
 	for (int i = 0; i < 4; i++) {
 		//vec4 b(L.column(i));		
-		const __m128 b = _mm_load_ps(&L.data[i][0]); //vec4 b(L.column(i));
+		//const __m128 b = _mm_load_ps(&L.data[i][0]); //vec4 b(L.column(i));
 		for (int j = 0; j < 4; j++) {
-			__m128 r = _mm_dp_ps(_mm_load_ps(&R.data[j][0]), b, mask);
-			ret.data[j][i] = r.m128_f32[0];		//ret(j, i) = r.m128_f32[0];
+			//__m128 r = _mm_dp_ps(R.data[j], L.data[i], mask);
+			//ret.data[j].m128_f32[i] = r.m128_f32[0];		//ret(j, i) = r.m128_f32[0];
+			ret.data[j].m128_f32[i] = _mm_dp_ps(R.data[j], L.data[i], mask).m128_f32[0];
 		}
 	}
 	L.T();
 	
-	// 10000000 iterations:
-	// dp_ps, vec4, redirection to column:			15.796s
-	// dp_ps, vec4, no redirection:					10.449s 
-	// dp_ps, vec4, no redirection, no operator()	6.915s 
-	// dp_ps, no vec4, no redir., no operator()		2.611s. :-D
-	// naive, elementAt()							33.740s
-
 	return ret;
 #elif __linux__
 
@@ -282,6 +272,18 @@ for (int i = 0; i < 4; i++)
 	return ret;
 
 #endif
+}
+
+void mat4::zero() {
+
+#ifdef NDEBUG
+	
+	const __m128 zero;
+		// deliberately uninitialized, since it doesn't matter what you XOR	
+#else
+	const __m128 zero = _mm_setzero_ps();
+#endif
+	data[0] = data[1] = data[2] = data[3] = _mm_xor_ps(zero,zero);
 }
 
 vec4 mat4::operator* (const vec4& R) {
@@ -303,19 +305,10 @@ vec4 mat4::operator* (const vec4& R) {
 	M.T();
 	for (int i = 0; i < 4; i++) 
 		//v.data.m128_f32[i] = _mm_dp_ps(M.column(i).data, R.data, mask).m128_f32[0];	
-		v.data.m128_f32[i] = _mm_dp_ps(_mm_load_ps(&M.data[i][0]), R.data, mask).m128_f32[0];	
+		v.data.m128_f32[i] = _mm_dp_ps(M.data[i], R.data, mask).m128_f32[0];	
 	
 	M.T();
 	return v;
-	// benchmarks (10000000 iterations)
-	// SSE:
-	// dp_ps, operator(), redirect:			about 7.2s
-	// dp_ps, no operator(), redirect:		6.361s
-	// dp_ps, 2 transposes, redirect:		3.743s
-	// dp_ps, 2 transposes, no redirect		1.876s
-	// 
-	// no SSE:
-	// naive, elementAt()					8.839s
 
 #elif __linux
 	vec4 v;
@@ -337,42 +330,49 @@ vec4 mat4::operator* (const vec4& R) {
 float& mat4::operator() ( const int &column, const int &row ) {
 
 	// no bounds checking! 
-	return data[column][row];
+	return data[column].m128_f32[row];
 }
 
 float mat4::elementAt(const int &column, const int &row) const {
 
-	return data[column][row];
+	return data[column].m128_f32[row];
 
 }
 
 void mat4::identity() {
+#ifdef _WIN32
 
+	mat4 &a = (*this);
+	a.zero();
+	// dislike using operator(), but cba to expand it :D
+	a(0,0) = 1.0;
+	a(1,1) = 1.0;
+	a(2,2) = 1.0;
+	a(3,3) = 1.0;
+
+#elif __linux__
 	memset(this->data, 0, sizeof(this->data));
 
 	this->data[0][0] = 1.0;
 	this->data[1][1] = 1.0;
 	this->data[2][2] = 1.0;
 	this->data[3][3] = 1.0;
-
+#endif
 }
 
 vec4 mat4::row(const int &i) {
 #ifdef _WIN32
+		
+	this->T();
+	const __m128 row = this->data[i];
+	this->T();
+	return vec4(row);
 	
-	// without transposition
-	const mat4 &M = (*this);
 	//return vec4(_mm_setr_ps(M.elementAt(0,i), M.elementAt(1,i), M.elementAt(2,i), M.elementAt(3,i)));
-	return vec4(_mm_set_ps(M.elementAt(3,i), M.elementAt(2,i), M.elementAt(1,i), M.elementAt(0,i)));
+	//return vec4(_mm_set_ps(M.elementAt(3,i), M.elementAt(2,i), M.elementAt(1,i), M.elementAt(0,i)));
 	
 	// with transposition 
-/*
-	mat4 &M = (*this);
-	M.T(); 
-	vec4 ret = M.column(i);
-	M.T();
-	return ret;
-	*/
+
 #elif __linux__
 	return vec4(data[0][i], data[1][i], data[2][i], data[3][i]);
 #endif
@@ -386,9 +386,7 @@ vec4 mat4::row(const int &i) {
 
 vec4 mat4::column(const int &i) {
 #ifdef _WIN32
-	// this can be actually optimised further than row(), since the elements are contiguous
-	const mat4 &M = (*this);
-	return vec4(_mm_load_ps(&M.data[i][0]));
+	return vec4(this->data[i]);
 #elif __linux__
 	return vec4(data[0][i], data[1][i], data[2][i], data[3][i]);
 #endif
@@ -396,10 +394,9 @@ vec4 mat4::column(const int &i) {
 
 void mat4::assignToColumn(const int &column, const vec4& v) {
 #ifdef _WIN32
-	mat4 &M = (*this);
-	_mm_storeu_ps(&M.data[column][0], v.data);
+	this->data[column] = v.data;
 #elif __linux__
-
+	// NYI
 #endif
 
 }
@@ -410,12 +407,10 @@ void mat4::assignToRow(const int &row, const vec4& v) {
 	// 1. row operations are inherently slower than column operations, and
 	// 2. transposition is blazing fast (:D)
 	// we could just transpose the matrix and do some fancy sse shit with it.
-	
-	mat4& M = (*this);
-	M.T();
-	//M.assignToColumn(row, v);
-	_mm_storeu_ps(&M.data[row][0], v.data);
-	M.T();
+
+	this->T();
+	this->data[row] = v.data;
+	this->T();
 	
 #elif __linux__
 		mat4& M = (*this);
@@ -425,25 +420,24 @@ void mat4::assignToRow(const int &row, const vec4& v) {
 	M(3, row) = v.elementAt(3);
 #endif
 
-	// benchmarks for 100000000 iterations:
-	//
-	// Two transpositions, redirect:	14.753s
-	// Two transpositions, no redirect:	12.505s !
-	// Naive							20.772s		
-
-	// - assignToColumn took 2.429s :D
 }
 
+// return by void pointer? :P
+void *mat4::rawdata() const {
+#ifdef _WIN32
+	return (void*)&data[0];	// seems to work just fine :D
+#elif __linux__
 
-const float *mat4::rawdata() const {
+	// nyi
 
-	return &data[0][0];
+#endif
+
 
 }
 
 void mat4::printRaw() const {
 
-	const float * const ptr = &this->data[0][0];
+	const float * const ptr = (float*)&this->data[0];
 		
 #ifdef _WIN32
 	static const char* fmt = "%4.3f %4.3f %4.3f %4.3f\n";
@@ -471,22 +465,22 @@ void mat4::make_proj_orthographic(float const & left, float const & right, float
 	// also, the subscript operators could be used here.
 	
 	// FOR DEBUG, and just to be on the safe side:
-	this->identity();
+	mat4 &M = (*this);
+	
+	M.identity();
 
-	this->data[0][0] = 2.0/(right - left);
-	this->data[1][1] = 2.0/(top - bottom);
-	this->data[2][2] = -2.0/(zFar - zNear);
+	M(0,0) = 2.0/(right - left);
+	M(1,1) = 2.0/(top - bottom);
+	M(2,2) = -2.0/(zFar - zNear);
 
 	// this can be simplified further, if the viewing volume is symmetric,
 	// i.e. right - left == 0 && top-bottom == 0 && zFar-zNear == 0.
 	// But it isn't. =)
 
-	this->data[3][0] = - (right + left) / (right - left);
-	this->data[3][1] = - (top + bottom) / (top - bottom);
-	this->data[3][2] = - (zFar + zNear) / (zFar - zNear);
-
-	this->data[3][3] = 1.0;	// Regardless of how the projection works, opengl itself seems to
-	// be settings this element to 1.0 (tested with glOrtho(...) -> glGetFloatv(GL_PROJECTION_MATRIX) -> print)
+	M(3,0) = - (right + left) / (right - left);
+	M(3,1) = - (top + bottom) / (top - bottom);
+	M(3,2) = - (zFar + zNear) / (zFar - zNear);
+	// the element at [3][3] is already 1 (identity() was called)
 }
 
 void mat4::make_proj_perspective(float const & left, float const & right, float const & bottom, float const & top, float const & zNear, float const & zFar) {
@@ -503,37 +497,7 @@ void mat4::T() {
 
 #ifdef _WIN32
 
-	__m128	c1, c2, c3, c4;
-	 //let's still keep the memcpy version just for comparison
-	/*
-	memcpy(&r1, &(data[0][0]), 4*sizeof(float));
-	memcpy(&r2, &(data[1][0]), 4*sizeof(float));
-	memcpy(&r3, &(data[2][0]), 4*sizeof(float));
-	memcpy(&r4, &(data[3][0]), 4*sizeof(float));
-	*/
-	
-	// the _MM_TRANSPOSE_PS has its arguments named row1, row2 ... etc.,
-	// but actually it doesn't matter which way we do it :D
-	// Doing it by column.
-	c1 = _mm_loadu_ps(&data[0][0]);
-	c2 = _mm_loadu_ps(&data[1][0]);
-	c3 = _mm_loadu_ps(&data[2][0]);
-	c4 = _mm_loadu_ps(&data[3][0]);
-	
-	_MM_TRANSPOSE4_PS(c1, c2, c3, c4);	// microsoft special transpose macro :P
-
-	// as of now, the mat4 (and vec4) structures are
-	// 16-byte aligned, so _mm_store_ps can be used
-	// safely instead of the less efficient _mm_storeu_ps
-	// intrinsics
-
-	_mm_store_ps(&(data[0][0]), c1);	
-	_mm_store_ps(&(data[1][0]), c2);
-	_mm_store_ps(&(data[2][0]), c3);
-	_mm_store_ps(&(data[3][0]), c4);
-	
-	
-
+	_MM_TRANSPOSE4_PS(data[0], data[1], data[2], data[3]);	// microsoft special in-place transpose macro :P
 
 #elif __linux__
 
@@ -551,21 +515,3 @@ void mat4::T() {
 
 #endif
 }
-
-
-
-//ftransform_test. NOTE: Requires a valid OpenGL context.
-
-/*vec4 ftransform_test(vec4 &vec) {
-
-	float dataholder[16];
-	glGetFloatv(GL_PROJECTION_MATRIX, dataholder);
-	mat4 projection(dataholder);
-
-	glGetFloatv(GL_MODELVIEW_MATRIX, dataholder);
-	mat4 modelview(dataholder);
-
-	vec4 ret = (projection*modelview)*vec;
-	return ret;
-
-}*/
