@@ -1,10 +1,6 @@
 #include "text.h"
 
-GLuint texcoord_index_from_char(char a) {
 
-	return (GLuint)a - 0x20;
-
-}
 
 wpstring::wpstring(const std::string& text, const std::size_t& str_len, GLuint x, GLuint y)  : length(str_len) {
 

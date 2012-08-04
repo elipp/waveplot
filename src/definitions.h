@@ -32,15 +32,16 @@ static const double aspect_ratio = double(WIN_W)/double(WIN_H);
 
 struct WAVHEADERINFO {
 
-        char padding[4];        // 4
-        unsigned int chunksize; // 8
-        char padding2[14];      // 22
-        short int numChannels;  // 24
-        int sampleRate;         // 28
-        char padding3[6];       // 34
-        short int bitDepth;     // 36
-        char padding4[8];       // 44
-
+	char padding[4];        // 4
+	unsigned int chunkSize; // 8
+	char padding2[14];      // 22
+	short int numChannels;  // 24
+	int sampleRate;         // 28
+	int byteRate;			// 32
+	char padding3[2];       // 34
+	short int bitDepth;     // 36
+	char padding4[4];       // 40
+	int subChunk2Size;		// 44
 };
 
 struct BMPHEADERINFO {

@@ -22,7 +22,7 @@ struct wpstring {
 
 };
 
-GLuint texcoord_index_from_char(char a);
+static inline GLuint texcoord_index_from_char(char a){ return (GLuint)a - 0x20; }
 
 
 

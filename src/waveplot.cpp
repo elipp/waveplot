@@ -28,6 +28,7 @@
 #include "text.h"
 #include "slider.h"
 #include "lin_alg.h"
+#include "timer.h"
 
 #define BUFFER_OFFSET(i) (reinterpret_cast<void*>(i))
 
@@ -62,7 +63,7 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);	// declare wndproc
  *
  * */
 
-static const std::string input_filename("resources/asdfmono.wav");
+static std::string input_filename("resources/asdfmono.wav");
 
 extern const vertex sliders[];
 
@@ -108,63 +109,7 @@ namespace View {
 
 static const double frame_interval = 1.0/60.0;
 
-namespace Timer {
 
-	double cpu_freq;	// in kHz
-	bool init();
-	void start();
-
-	__int64 get();
-
-
-#ifdef _WIN32
-	
-	__int64 counter_start;
-
-
-#elif __linux__
-
-	// not yet implemented.
-
-#endif
-	
-	inline double getSeconds() {	
-		return double(Timer::get()-Timer::counter_start)/Timer::cpu_freq;
-	}
-}
-
-#ifdef _WIN32
-bool Timer::init() {
-	LARGE_INTEGER li;
-	if (!QueryPerformanceFrequency(&li)) {
-		printf("Timer initialization failed.\n");
-		return false;
-	}
-	cpu_freq = double(li.QuadPart);	// in Hz. this is subject to dynamic frequency scaling, though
-
-	return true;
-}
-
-void Timer::start() {
-	LARGE_INTEGER li;
-	QueryPerformanceCounter(&li);
-	counter_start = li.QuadPart;
-}
-
-__int64 Timer::get() {
-	LARGE_INTEGER li;
-	QueryPerformanceCounter(&li);
-	return li.QuadPart;
-}
-
-
-#elif __linux__
-
-bool Timer::init() { }// stub
-void Timer::start() { } // stub
-long int Timer::get() { } // stub
-
-#endif
 
 bool texture::make_texture(const char* filename, GLint filter_flag) {
 
@@ -289,6 +234,14 @@ void generateWaveVertexArray(triangle* triangles, std::size_t samplecount) {
 	glBufferData(GL_ARRAY_BUFFER, (trianglecount)*sizeof(triangle), triangles, GL_STATIC_DRAW);
 
 	waveVertexArray.IBOid = -1;	// not used
+
+}
+
+void destroyWaveVertexArray() {
+
+	glDeleteBuffers(1, &waveVertexArray.VBOid);
+	// the vertex array doesn't have an IBO. lolz :D
+	//glDeleteBuffers(1, &waveVertexArray.IBOid);
 
 }
 
@@ -672,7 +625,7 @@ void drawWave() {
 #ifdef _WIN32
 	glDrawElements(GL_TRIANGLES, BUFSIZE*2, GL_UNSIGNED_INT, NULL);
 #elif __linux__
-	glDrawElements(GL_TRIANGLES, BUFSIZE/4, GL_UNSIGNED_SHORT, NULL);
+	glDrawElements(GL_TRIANGLES, BUFSIZE*2, GL_UNSIGNED_SHORT, NULL);
 #endif
 	
 	glUseProgram(0);
@@ -776,9 +729,37 @@ void drawText() {
 		++iter;
 	}
 
+}
 
+
+bool readWAVFile(const std::string& filename) {
+	
+	std::ifstream input(filename, std::ios::binary);
+
+	if (!input.is_open()) {	
+		printf("Couldn't open file %s\n", filename.c_str());
+		return false;
+
+	}
+	std::size_t num_samples;
+
+	// the readSampleData_int16 function actually reads the whole file.
+	float *samples = readSampleData_int16(input, &num_samples);	// presuming signed 16-bit, little endian
+
+	if (num_samples > BUFSIZE_MAX) {
+		BUFSIZE=BUFSIZE_MAX;
+	} else { BUFSIZE = num_samples; }
+
+	triangle *triangles = bakeWaveVertexArrayUsingLineIntersections(samples, BUFSIZE);
+	generateWaveVertexArray(triangles, BUFSIZE);
+	delete [] triangles;
+
+	delete [] samples;
+
+	return true;
 
 }
+
 inline void control() {
 	
 	// arbitrary timestep
@@ -841,7 +822,6 @@ inline void draw() {
 
 
 #ifdef _WIN32
-
 void KillGLWindow(void)
 {
 	if(hRC)
@@ -878,7 +858,6 @@ void KillGLWindow(void)
 	}
 
 }
-
 
 BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscreenflag)
 {
@@ -1039,6 +1018,34 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 }
 
 
+
+const std::string openFileDialog() {
+
+	OPENFILENAME ofn;
+
+	char szFileName[MAX_PATH] = "";
+
+	ZeroMemory(&ofn, sizeof(ofn));
+
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = hWnd;
+	ofn.lpstrFilter = "Microsoft RIFF WAVE files (*.wav)\0*.wav\0All Files (*.*)\0*.*\0";
+	ofn.lpstrFile = szFileName;
+	ofn.nMaxFile = MAX_PATH;
+	ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+	ofn.lpstrDefExt = "wav";
+
+	if (GetOpenFileName(&ofn)) {
+		return std::string(szFileName);
+	}
+
+	else { 
+		return ""; 
+	}
+
+}
+
+
 LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 
@@ -1088,6 +1095,13 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				keys[wParam]=FALSE;
 				return 0;
 			}
+
+		case WM_CHAR:
+			{
+				keys[wParam]=TRUE;
+				return 0;
+			}
+
 		case WM_SIZE:
 			{
 				return 0;
@@ -1148,12 +1162,22 @@ void initializeStrings() {
 	const std::string buffer_size(buf);
 	const std::string bufinfostring = "Buffer size / # of samples: " + buffer_size;
 	strings.push_back(wpstring(bufinfostring, bufinfostring.length(), 15, WIN_H-20));
+
+	const std::string help("Press 'o' to open a new file.");
+	strings.push_back(wpstring(help, help.length(), WIN_W-220, 20));
 }
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
 
+	const std::string cpu_ext_string(checkCPUCapabilities());
+
+	if (cpu_ext_string != "OK") {
+		MessageBox(NULL, cpu_ext_string.c_str(), "Fatal error", MB_OK | MB_ICONINFORMATION);
+		return EXIT_FAILURE;
+	}
+	
 	/* allocate console for debug output (only works with printf doe) */
 
 	if(AllocConsole()) {
@@ -1172,43 +1196,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		return 1;
 	}
 
+
+	if (!readWAVFile(input_filename)) {
+		return 1;
+	}
+
 	int running=1;
 
-	std::ifstream input(input_filename, std::ios::binary);
 
-	if (!input.is_open()) {	
-		printf("Couldn't open resource file %s\n", input_filename.c_str());
-		return 1;
 
-	}
+	//float tmpx = 0.0;
+///	static float step = 0.125;
 
-	std::size_t num_samples;
-
-	// the readSampleData_int16 function actually reads the whole file.
-	float *samples = readSampleData_int16(input, &num_samples);	// presuming 16-bit, little endian
-
-	if (num_samples > BUFSIZE_MAX) {
-		BUFSIZE=BUFSIZE_MAX;
-	} else { BUFSIZE = num_samples; }
-
-	triangle *triangles = bakeWaveVertexArrayUsingLineIntersections(samples, BUFSIZE);
-	generateWaveVertexArray(triangles, BUFSIZE);
-	delete [] triangles;
-
-	float tmpx = 0.0;
-	static float step = 0.125;
-
-	for (int i=0; i < BUFSIZE; i++)
-	{
-		lines.push_back(make_line(tmpx, half_WIN_H*(samples[i]+1.0), tmpx + step, half_WIN_H*(samples[i+1]+1.0)));
-		tmpx+=step;
-	}
+	//for (int i=0; i < BUFSIZE; i++)
+	//{
+	//	lines.push_back(make_line(tmpx, half_WIN_H*(samples[i]+1.0), tmpx + step, half_WIN_H*(samples[i+1]+1.0)));
+	//	tmpx+=step;
+//	}
 	
 	initializeStrings();
 
-	generateWaveVBOs();
+	//generateWaveVBOs();
 	//generateSliderVBOs();
-	delete [] samples;
+
 
 	Timer::init();
 
@@ -1234,21 +1244,26 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 					done = true;
 				}
 
-				if(keys[VK_UP]) {
-					zoomIn();
-					keys[VK_UP] = false;
-				}
-				if(keys[VK_DOWN]) {
-					zoomOut();
-					keys[VK_DOWN] = false;
-				}
-				if(keys[VK_RIGHT]) {
-					translateRight();
-					keys[VK_RIGHT] = false;
-				}
-				if(keys[VK_LEFT]) {
-					translateLeft();
-					keys[VK_LEFT] = false;
+				// removed keyboard controlling. Refer to github history if you still want that.
+
+				if (keys['o']) {
+					// a file dialog is opened :P
+					
+					const std::string newfile = openFileDialog();
+					if (newfile != "") {	
+						if (input_filename != newfile) {
+							input_filename = newfile;
+							// destroy previous data, open new
+							destroyWaveVertexArray();
+							if (!readWAVFile(newfile)) {
+								MessageBox(NULL, "Couldn't open file!", "Error!", NULL);
+								return 1;
+							}
+						}
+					}
+					//printf("%s\n", newfile.c_str());
+										
+					keys['o'] = false;
 				}
 
 				control();
@@ -1276,7 +1291,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	KillGLWindow();
 	glDeleteBuffers(1, &waveData.VBOid);
-	glDeleteBuffers(1, &waveData.IBOid);
 	return (msg.wParam);
 }
 

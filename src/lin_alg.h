@@ -2,18 +2,22 @@
 #define LIN_ALG_H
 
 #include <cstring>
+#include <cmath>
 #include <iostream>
 #include <iomanip>
 #ifdef _WIN32
 #include <stdio.h>
+#include <intrin.h>
 #include <xmmintrin.h>
 #include <smmintrin.h>
 #endif
 
 enum { MAT_ZERO = 0x0, MAT_IDENTITY = 0x1 };
 
+const char* checkCPUCapabilities();
+
 #ifdef _WIN32
-__declspec(align(16)) // this of course refers to the following struct
+__declspec(align(16)) // to ensure 16-byte alignment in memory
 struct vec4 {		
 	__m128 data;
 	vec4(const __m128 &a) : data(a) {} ;
@@ -34,11 +38,15 @@ struct vec4 {
 	void operator+=(const vec4& b);
 	vec4 operator+(const vec4& b);
 
+	float length3() const;
+	float length4() const;
+	void normalize();
+
 	void print();
 
 };
 
-vec4 operator*(const float& scalar, vec4& v);
+vec4 operator*(const float& scalar, vec4& v);	// convenience overload :P
 
 // NOTE: the dot function doesn't perform an actual dot product computation of two R^4 vectors,
 // as the type of the arguments misleadingly suggests. Instead it computes a truncated dot product,
@@ -50,9 +58,7 @@ float dot(const vec4 &a, const vec4 &b);
 // DPPS:			2.9s
 // MULPS:			3.0s
 
-vec4 cross(const vec4 &a,  const vec4 &b);
-
-
+vec4 cross(const vec4 &a,  const vec4 &b);	// not really vec4, since cross product for such vectors isn't defined
 
 #ifdef _WIN32
 __declspec(align(64))

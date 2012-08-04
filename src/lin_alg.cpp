@@ -1,5 +1,32 @@
 #include "lin_alg.h"
 
+const char* checkCPUCapabilities() {
+#ifdef _WIN32
+	int a[4];
+	__cpuid(a, 1);
+
+	// SSE
+	if (!(a[3] & (0x1 << 25))) {
+		return "SSE not supported by host processor!";
+	}
+	// SSE2
+	if (!(a[3] & (0x1 << 26))) {
+		return "SSE2 not supported by host processor!"; 
+	}
+	
+	if (!(a[2] & (0x1 << 19))) {
+		return "SSE4.1 not supported by host processor!";
+	}
+	
+	return "OK";
+
+#elif __linux__
+
+	// nyi
+
+#endif
+}
+
 vec4::vec4(float _x, float _y, float _z, float _w) {
 
 #ifdef _WIN32
@@ -89,6 +116,53 @@ vec4 vec4::operator+(const vec4 &b) {
 	return vec4(data[0]+b.data[0],data[1]+b.data[1],data[2]+b.data[2],data[3]+b.data[3]);
 
 #endif
+}
+
+float vec4::length3() const {
+#ifdef _WIN32
+
+	return sqrt(_mm_dp_ps(this->data, this->data, 0x71).m128_f32[0]);
+
+#elif __linux__
+	const vec4 &v = (*this);
+	return sqrt(v.data[0]*v.data[0] + v.data[1]*v.data[1] + v.data[2]*v.data[2]);
+
+#endif
+
+}
+
+float vec4::length4() const {
+
+#ifdef _WIN32
+
+	return sqrt(_mm_dp_ps(this->data, this->data, 0xF1).m128_f32[0]);	// includes x,y,z,w in the computation
+
+#elif __linux__
+	const vec4 &v = (*this);
+	return sqrt(v.data[0]*v.data[0] + v.data[1]*v.data[1] + v.data[2]*v.data[2] + v.data[3]*v.data[3]);
+
+#endif
+
+}
+
+// this should actually include all components, but given the application, this won't :P
+
+void vec4::normalize() {
+#ifdef _WIN32
+	const float l_recip = 1.0/sqrt(_mm_dp_ps(this->data, this->data, 0x71).m128_f32[0]); // only x,y,z components
+	const __m128 d = _mm_set1_ps(l_recip);
+
+	this->data = _mm_mul_ps(this->data, d);
+#elif __linux__
+
+	const float l_recip = 1.0/sqrt(length3());
+
+	this->data[0] *= l_recip;
+	this->data[1] *= l_recip;
+	this->data[2] *= l_recip;
+
+#endif
+
 }
 
 void vec4::print(){
