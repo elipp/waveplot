@@ -14,6 +14,12 @@ float* readSampleData_int16(std::ifstream& input, std::size_t* const num_samples
 
         std::size_t filesize = cpp_getfilesize(input);
        
+		static const std::size_t FILE_MAX = (0x1 << 24);
+
+		if (filesize > FILE_MAX) {
+			filesize = FILE_MAX;
+		}
+
 		const std::size_t numsamples = (filesize-44)/2;
 		short *sampledata = new short[numsamples];
 

@@ -1,5 +1,16 @@
 #include "lin_alg.h"
 
+#ifdef _WIN32
+static const __m128 ZERO = _mm_setzero_ps();
+static const __m128 QUAT_CONJUGATE = _mm_set_ps(1.0, -1.0, -1.0, -1.0);
+static const __m128 QUAT_NO_ROTATION = _mm_set_ps(1.0, 0.0, 0.0, 0.0);
+static const int mask231 = 0xD8, // 11 01 10 00_2
+				 mask312 = 0xE1, // 11 10 00 01_2
+				 dp_mask = 0x71, // 11 10 00 01_2
+				 xyz_dot_mask = 0x71,
+				 xyzw_dot_mask = 0xF1;
+#endif
+
 const char* checkCPUCapabilities() {
 #ifdef _WIN32
 	int a[4];
@@ -45,7 +56,7 @@ vec4::vec4(float _x, float _y, float _z, float _w) {
 
 vec4::vec4() {
 #ifdef _WIN32
-	data = _mm_setzero_ps();
+	data = ZERO;
 #elif __linux__
 	memset(data, 0, sizeof(data)); 
 #endif
@@ -66,8 +77,7 @@ void vec4::operator*=(const float& scalar) {
 
 #ifdef _WIN32
 	// use xmmintrin
-	__m128 s = _mm_load1_ps(&scalar);	// set the whole register to value scalar
-	data = _mm_mul_ps(data, s);
+	data = _mm_mul_ps(data, _mm_load1_ps(&scalar));
 
 #elif __linux__
 
@@ -195,28 +205,11 @@ void mat4::print() {
 #endif
 }
 
-float& vec4::operator() (const int & row) {	
-
-#ifdef _WIN32
-	return data.m128_f32[row];
-#elif __linux__
-	return data[row];
-#endif
-}
-
-float vec4::elementAt(const int& row) const {
-#ifdef _WIN32
-	return data.m128_f32[row];
-#elif __linux__
-	return data[row];
-#endif
-}
 
 float dot(const vec4 &a, const vec4 &b) {
 #ifdef _WIN32
 
-	static const int mask = 0x71; // == 0111 0001_2, which means "use x,y,z components of the vectors, store result in the lowest word only"
-	__m128 dot = _mm_dp_ps(a.data, b.data, mask);	// direct computation of dot product (SSE4)
+	__m128 dot = _mm_dp_ps(a.data, b.data, xyz_dot_mask);	// direct computation of dot product (SSE4)
 	return dot.m128_f32[0];	 
 	
 	/*// yet another solution	
@@ -235,10 +228,12 @@ float dot(const vec4 &a, const vec4 &b) {
 vec4 cross(const vec4 &a, const vec4 &b) {
 
 	// See: http://fastcpp.blogspot.fi/2011/04/vector-cross-product-using-sse-code.html.
-	// Absolutely beautiful (the exact same recipe can be found at
+	// Absolutely beautiful! (the exact same recipe can be found at
 	// http://neilkemp.us/src/sse_tutorial/sse_tutorial.html#E, albeit in assembly.)
 	
 #ifdef _WIN32
+
+	// replace the _MM_SHUFFLE macros with predefined mask constants
 
 	return vec4(
 	_mm_sub_ps(
@@ -257,12 +252,7 @@ vec4 cross(const vec4 &a, const vec4 &b) {
 mat4::mat4() {
 #ifdef _WIN32
 
-#ifdef NDEBUG
-	const __m128 zero;	// no need to initialize; only being used for _mm_xor_ps(zero,zero), which always returns a 0-vector
-#else
-	const __m128 zero = _mm_setzero_ps();
-#endif
-	data[0] = data[1] = data[2] = data[3] = _mm_xor_ps(zero,zero);
+	data[0] = data[1] = data[2] = data[3] = ZERO;
 
 #elif __linux__
 
@@ -300,6 +290,16 @@ mat4::mat4(const int main_diagonal_val) {
 
 }
 
+
+mat4::mat4(const vec4& c1, const vec4& c2, const vec4& c3, const vec4& c4) {
+
+	data[0] = c1.data;
+	data[1] = c2.data;
+	data[2] = c3.data;
+	data[3] = c4.data;
+
+}
+
 mat4 mat4::operator* (const mat4& R) {
 
 #ifdef _WIN32
@@ -318,11 +318,7 @@ mat4 mat4::operator* (const mat4& R) {
 	
 
 	for (int i = 0; i < 4; i++) {
-		//vec4 b(L.column(i));		
-		//const __m128 b = _mm_load_ps(&L.data[i][0]); //vec4 b(L.column(i));
 		for (int j = 0; j < 4; j++) {
-			//__m128 r = _mm_dp_ps(R.data[j], L.data[i], mask);
-			//ret.data[j].m128_f32[i] = r.m128_f32[0];		//ret(j, i) = r.m128_f32[0];
 			ret.data[j].m128_f32[i] = _mm_dp_ps(R.data[j], L.data[i], mask).m128_f32[0];
 		}
 	}
@@ -349,15 +345,11 @@ for (int i = 0; i < 4; i++)
 }
 
 void mat4::zero() {
-
-#ifdef NDEBUG
-	
-	const __m128 zero;
-		// deliberately uninitialized, since it doesn't matter what you XOR	
-#else
-	const __m128 zero = _mm_setzero_ps();
+#ifdef _WIN32
+	data[0] = data[1] = data[2] = data[3] = ZERO;
+#elif __linux__
+	memset(data, 0, sizeof(data));
 #endif
-	data[0] = data[1] = data[2] = data[3] = _mm_xor_ps(zero,zero);
 }
 
 vec4 mat4::operator* (const vec4& R) {
@@ -400,18 +392,6 @@ vec4 mat4::operator* (const vec4& R) {
 
 }
 
-
-float& mat4::operator() ( const int &column, const int &row ) {
-
-	// no bounds checking! 
-	return data[column].m128_f32[row];
-}
-
-float mat4::elementAt(const int &column, const int &row) const {
-
-	return data[column].m128_f32[row];
-
-}
 
 void mat4::identity() {
 #ifdef _WIN32
@@ -480,6 +460,7 @@ void mat4::assignToRow(const int &row, const vec4& v) {
 	// here, since 
 	// 1. row operations are inherently slower than column operations, and
 	// 2. transposition is blazing fast (:D)
+
 	// we could just transpose the matrix and do some fancy sse shit with it.
 
 	this->T();
@@ -535,10 +516,8 @@ void mat4::make_proj_orthographic(float const & left, float const & right, float
 	// We could just assume here that the matrix is "clean",
 	// i.e. that any matrix elements other than the ones used in
 	// a pure orthographic projection matrix are zero.
+		
 
-	// also, the subscript operators could be used here.
-	
-	// FOR DEBUG, and just to be on the safe side:
 	mat4 &M = (*this);
 	
 	M.identity();
@@ -546,10 +525,6 @@ void mat4::make_proj_orthographic(float const & left, float const & right, float
 	M(0,0) = 2.0/(right - left);
 	M(1,1) = 2.0/(top - bottom);
 	M(2,2) = -2.0/(zFar - zNear);
-
-	// this can be simplified further, if the viewing volume is symmetric,
-	// i.e. right - left == 0 && top-bottom == 0 && zFar-zNear == 0.
-	// But it isn't. =)
 
 	M(3,0) = - (right + left) / (right - left);
 	M(3,1) = - (top + bottom) / (top - bottom);
@@ -559,9 +534,18 @@ void mat4::make_proj_orthographic(float const & left, float const & right, float
 
 void mat4::make_proj_perspective(float const & left, float const & right, float const & bottom, float const & top, float const & zNear, float const & zFar) {
 		
-	// STUB(B)! (probably never going to be used)
-	// nop
-	return;
+
+	mat4 &M = (*this);
+	M.identity();
+
+	M(0,0) = 2*zNear/(right-left);
+	M(1,1) = 2*zNear/(top-bottom);
+	M(2,0) = (right+left)/(right-left);
+	M(2,1) = (top+bottom)/(top-bottom);
+	M(2,2) = -(zFar + zNear)/(zFar - zNear);
+	M(2,3) = -1;
+	M(3,2) = -(2*zFar*zNear)/(zFar - zNear);
+	
 
 }
 
@@ -588,4 +572,86 @@ void mat4::T() {
 	}
 
 #endif
+}
+
+Quaternion::Quaternion(float x, float y, float z, float w) { 
+	data = _mm_set_ps(w, z, y, x);	// in reverse order
+}
+
+Quaternion::Quaternion() { data=QUAT_NO_ROTATION; }
+
+Quaternion Quaternion::conjugate() const {
+	const Quaternion &Q = (*this);
+	return Quaternion(_mm_mul_ps(this->data, QUAT_CONJUGATE));	
+}
+
+void Quaternion::normalize() { 
+
+	static const int mask = 0xF1; // include all components in computation
+	Quaternion &Q = (*this);
+	const float mag_squared = _mm_dp_ps(Q.data, Q.data, mask).m128_f32[0];
+	if (fabs(mag_squared-1.0) > 0.001) {	// to prevent calculations from exploding
+		Q.data = _mm_mul_ps(Q.data, _mm_set1_ps(1.0/sqrt(mag_squared)));	
+	}
+
+}
+
+Quaternion Quaternion::operator*(const Quaternion &b) const {
+#ifdef _WIN32
+
+	// q1*q2 = w1w2 + dot(v1,v2) + cross(v1,v2)
+
+
+	const Quaternion &a = (*this);
+	Quaternion ret(
+	_mm_sub_ps(
+	_mm_mul_ps(_mm_shuffle_ps(a.data, a.data, mask231), _mm_shuffle_ps(b.data, b.data, mask312)),
+	_mm_mul_ps(_mm_shuffle_ps(a.data, a.data, mask312), _mm_shuffle_ps(b.data, b.data, mask231))));
+
+	ret.data.m128_f32[Q::w] = a.data.m128_f32[Q::w]*b.data.m128_f32[Q::w] + _mm_dp_ps(a.data, b.data, dp_mask).m128_f32[0];
+
+	return ret;
+
+#elif __linux__
+	//nyi
+#endif 
+
+}
+
+vec4 Quaternion::operator*(const vec4& b) const {
+
+	const Quaternion &q = (*this);
+	vec4 v(b);
+	v.normalize();
+	Quaternion vec_q, res_q;
+	vec_q.data = b.data;
+	vec_q(Q::w) = 0.0;
+
+	res_q = vec_q * q.conjugate();
+	res_q = q*res_q;
+	
+	return vec4(res_q.data);
+}
+
+mat4 Quaternion::toRotationMatrix() const {
+	
+	// using SSE, the initial combinatorics could be done with
+	// 2 multiplications, two shuffles, and one regular
+	// multiplication. not sure it's quite worth it though :P
+
+	const float x2 = element(Q::x)*element(Q::x);
+	const float y2 = element(Q::y)*element(Q::y);
+	const float z2 = element(Q::z)*element(Q::z);
+	const float xy = element(Q::x)*element(Q::y);
+	const float xz = element(Q::x)*element(Q::z);
+	const float xw = element(Q::x)*element(Q::w);
+	const float yz = element(Q::y)*element(Q::z);
+	const float yw = element(Q::y)*element(Q::w);
+	const float zw = element(Q::z)*element(Q::w);
+
+	return mat4(vec4(1.0 - 2.0*(y2 + z2), 2.0*(xy-zw), 2.0*(xz + yw), 0.0f),
+				vec4(2.0 * (xy + zw), 1.0 - 2.0*(x2 + z2), 2.0*(yz - xw), 0.0),
+				vec4(2.0 * (xz - yw), 2.0 * (yz + xw), 1.0 - 2.0 * (x2 + y2), 0.0),
+				vec4(0.0, 0.0, 0.0, 1.0));
+
 }

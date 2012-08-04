@@ -16,6 +16,8 @@ enum { MAT_ZERO = 0x0, MAT_IDENTITY = 0x1 };
 
 const char* checkCPUCapabilities();
 
+struct Quaternion;	// forward deklaration
+
 #ifdef _WIN32
 __declspec(align(16)) // to ensure 16-byte alignment in memory
 struct vec4 {		
@@ -28,8 +30,21 @@ struct vec4 {
 	vec4();	
 	vec4(float _x, float _y, float _z, float _w);	
 	vec4(const float * const a);
-	float& operator() (const int& row);	
-	float elementAt(const int& row) const;	
+	inline float& operator() (const int & row) {	
+		#ifdef _WIN32
+		return data.m128_f32[row];
+		#elif __linux__
+		return data[row];
+		#endif
+	}
+	
+	inline float vec4::elementAt(const int& row) const {
+	#ifdef _WIN32
+		return data.m128_f32[row];
+	#elif __linux__
+		return data[row];
+	#endif
+	}	
 
 	// see also: vec4 operator*(const float& scalar, vec4& v);
 
@@ -37,6 +52,7 @@ struct vec4 {
 	vec4 operator*(const float& scalar);
 	void operator+=(const vec4& b);
 	vec4 operator+(const vec4& b);
+	vec4 operator*(const Quaternion& b);
 
 	float length3() const;
 	float length4() const;
@@ -68,9 +84,11 @@ struct mat4 {	// column major
 struct mat4 {
 	float data[4][4];
 #endif
-	float& operator() (const int &column, const int &row);	// reference & non-const -> modifiable by subscript
-	float elementAt(const int &column, const int &row) const;
-	mat4 operator* (const mat4 &R);	// the other matrix needs to be transposed, hence no const specifier
+
+	inline float& operator() ( const int &column, const int &row ) { return data[column].m128_f32[row]; }
+	inline float mat4::elementAt(const int &column, const int &row) const { return data[column].m128_f32[row]; }
+	
+	mat4 operator* (const mat4 &R);	// the other matrix needs to be transposed, hence no const qualifier
 	vec4 operator* (const vec4 &R);
 	
 	vec4 row(const int& i);	// these two should be const, but optimization is a higher priority :D
@@ -78,10 +96,11 @@ struct mat4 {
 
 	void assignToRow(const int& row, const vec4& v);
 	void assignToColumn(const int& column, const vec4& v);
-
-	mat4(const float *data);
+	
 	mat4();
+	mat4(const float *data);
 	mat4(const int main_diagonal_val);
+	mat4(const vec4& c1, const vec4& c2, const vec4& c3, const vec4& c4);
 
 	void zero();
 	void identity();	// "in place identity"
@@ -109,6 +128,35 @@ struct mat4 {
 	void make_proj_perspective(float const & left, float const & right, float const & bottom, float const & top, float const & zNear, float const & zFar);
 	
 };
+
+namespace Q {
+	enum {x = 0, y = 1, z = 2, w = 3};
+};
+#ifdef _WIN32
+__declspec(align(16)) struct Quaternion {
+	__m128 data;
+#elif __linux__
+struct Quaternion {
+	float data[4];
+#endif
+
+	Quaternion(float x, float y, float z, float w);
+	Quaternion(const __m128 &d) : data(d) {};
+	Quaternion();
+
+	inline float element(const int &i) const { return data.m128_f32[i]; }
+	inline float& operator()(const int &i) { return data.m128_f32[i]; }
+	
+	void normalize();
+	Quaternion conjugate() const;
+
+	Quaternion operator*(const Quaternion& b) const;
+	vec4 operator*(const vec4& b) const;
+
+	mat4 toRotationMatrix() const;
+
+};
+
 
 vec4 ftransform_test(vec4 &);
 

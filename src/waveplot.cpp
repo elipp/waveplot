@@ -252,7 +252,7 @@ triangle *bakeWaveVertexArrayUsingLineIntersections(float* samples, const std::s
 	
 	const std::size_t triangle_count = 2*samplecount-1;
 	triangle* triangles = new triangle[triangle_count];
-	static const double dx = 1.0/8.0;
+	static const double dx = 1.0/4.0;
 	static const float h = half_linewidth;
 
 	float x1 = 0.0;
@@ -643,7 +643,8 @@ void drawWaveVertexArray() {
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
 
-	wave_projection.make_proj_orthographic(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), -1.0f, 1.0f);
+	//wave_projection.make_proj_orthographic(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), -1.0f, 1.0f);
+	wave_projection.make_proj_perspective(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), 1.0f, 100.0f);
 	wave_modelview.identity();
 
 	wave_modelview(3,0) = View::wave_position(0);
@@ -1147,8 +1148,10 @@ void initializeStrings() {
 	// NOTE: it wouldn't be such a bad idea to just take in a vector 
 	// of strings, and to generate one single static VBO for them all.
 
+	const std::size_t STRLEN_MAX = 64;
+
 	std::string string1 = "Filename: " + input_filename;
-	strings.push_back(wpstring(string1, string1.length(), 15, 15));
+	strings.push_back(wpstring(string1, STRLEN_MAX, 15, 15));
 
 	std::string frames("Frames per second: ");
 	strings.push_back(wpstring(frames, frames.length(), WIN_W-180, WIN_H-20));
@@ -1161,7 +1164,7 @@ void initializeStrings() {
 	sprintf(buf, "%d", BUFSIZE);
 	const std::string buffer_size(buf);
 	const std::string bufinfostring = "Buffer size / # of samples: " + buffer_size;
-	strings.push_back(wpstring(bufinfostring, bufinfostring.length(), 15, WIN_H-20));
+	strings.push_back(wpstring(bufinfostring, STRLEN_MAX, 15, WIN_H-20));
 
 	const std::string help("Press 'o' to open a new file.");
 	strings.push_back(wpstring(help, help.length(), WIN_W-220, 20));
@@ -1249,17 +1252,37 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 				if (keys['o']) {
 					// a file dialog is opened :P
 					
-					const std::string newfile = openFileDialog();
-					if (newfile != "") {	
-						if (input_filename != newfile) {
-							input_filename = newfile;
+					const std::string newfilename = openFileDialog();
+					if (newfilename != "") {	
+						if (input_filename != newfilename) {
+							input_filename = newfilename;
 							// destroy previous data, open new
 							destroyWaveVertexArray();
-							if (!readWAVFile(newfile)) {
+							if (!readWAVFile(newfilename)) {
 								MessageBox(NULL, "Couldn't open file!", "Error!", NULL);
 								return 1;
 							}
-						}
+							// update hud
+							printf("%s\n", newfilename.c_str());
+							// strip file name from absolute path
+							const std::size_t newfilename_len = newfilename.length();
+							int i = newfilename_len;
+							bool done = false;
+							while (!done) {
+								if (newfilename[--i] == '\\') done = true;
+							}			
+							const std::string strippedname = newfilename.substr(i+1, newfilename_len-i);
+
+							strings[0].updateString("Filename: " + strippedname);
+							
+							char buf[16];
+							sprintf(buf, "%d", BUFSIZE);
+							const std::string buffer_size(buf);
+							const std::string bufinfostring = "Buffer size / # of samples: " + buffer_size;
+							
+							strings[3].updateString(bufinfostring);
+
+							}
 					}
 					//printf("%s\n", newfile.c_str());
 										

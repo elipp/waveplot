@@ -1,12 +1,15 @@
 #include "text.h"
 
+wpstring::wpstring(const std::string& text, const std::size_t& len_max, GLuint x, GLuint y)  : length(len_max) {
 
-
-wpstring::wpstring(const std::string& text, const std::size_t& str_len, GLuint x, GLuint y)  : length(str_len) {
-
-	this->text = text;
 	this->x = x;
 	this->y = y;
+	const std::size_t len = text.length();
+	const std::size_t diff = len_max - len;
+	std::string newcopy;
+	newcopy = text;
+	newcopy.append(diff, 0x20);	// this will give the whitespace character when passed though texcoord_index_from_char
+	this->text = newcopy;
 	bufObj = generateTextObject();
 }
 
@@ -21,7 +24,7 @@ void wpstring::updateString(const std::string &newtext) {
 	else if (new_len <= length) {
 		const std::size_t diff = length - new_len;
 		std::string newcopy = newtext;
-		newcopy.append(diff, '0');
+		newcopy.append(diff, 0x20);
 		this->text = newcopy;
 	}
 	
