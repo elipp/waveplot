@@ -2,11 +2,11 @@
 
 #ifdef _WIN32
 static const __m128 ZERO = _mm_setzero_ps();
+static const __m128 ZERO_BUT_W1 = _mm_set_ps(1.0, 0.0, 0.0, 0.0);
 static const __m128 QUAT_CONJUGATE = _mm_set_ps(1.0, -1.0, -1.0, -1.0);	// in reverse order!
 static const __m128 QUAT_NO_ROTATION = _mm_set_ps(1.0, 0.0, 0.0, 0.0);
-static const int mask231 = 0xD8, // 11 01 10 00_2
-				 mask312 = 0xE1, // 11 10 00 01_2
-				 dp_mask = 0x71, // 11 10 00 01_2
+static const int mask3021 = 0xC9, // 11 00 10 01_2
+				 mask3102 = 0xD2, // 11 01 00 10_2
 				 xyz_dot_mask = 0x71,
 				 xyzw_dot_mask = 0xF1;
 #endif
@@ -230,13 +230,11 @@ vec4 cross(const vec4 &a, const vec4 &b) {
 	// http://neilkemp.us/src/sse_tutorial/sse_tutorial.html#E, albeit in assembly.)
 	
 #ifdef _WIN32
-
-	// replace the _MM_SHUFFLE macros with predefined mask constants
-
+		
 	return vec4(
 	_mm_sub_ps(
-    _mm_mul_ps(_mm_shuffle_ps(a.data, a.data, _MM_SHUFFLE(3, 0, 2, 1)), _mm_shuffle_ps(b.data, b.data, _MM_SHUFFLE(3, 1, 0, 2))), 
-    _mm_mul_ps(_mm_shuffle_ps(a.data, a.data, _MM_SHUFFLE(3, 1, 0, 2)), _mm_shuffle_ps(b.data, b.data, _MM_SHUFFLE(3, 0, 2, 1)))
+    _mm_mul_ps(_mm_shuffle_ps(a.data, a.data, mask3021), _mm_shuffle_ps(b.data, b.data, mask3102)), 
+    _mm_mul_ps(_mm_shuffle_ps(a.data, a.data, mask3102), _mm_shuffle_ps(b.data, b.data, mask3021))
   )
   );
 
@@ -394,19 +392,9 @@ void mat4::identity() {
 #endif
 }
 
-vec4 mat4::row(const int &i) {
-#ifdef _WIN32
-		
-	this->T();	// we'll have to determine whether copying the matrix to a temporary is actually faster than 
-				// two transpositions on the original
-	const __m128 row = this->data[i];
-	this->T();
-	return vec4(row);
-	
-	//return vec4(_mm_setr_ps(M.elementAt(0,i), M.elementAt(1,i), M.elementAt(2,i), M.elementAt(3,i)));
-	//return vec4(_mm_set_ps(M.elementAt(3,i), M.elementAt(2,i), M.elementAt(1,i), M.elementAt(0,i)));
-	
-	// with transposition 
+vec4 mat4::row(const int &i) const {
+#ifdef _WIN32		
+	return vec4((*this).transposed().data[i]);
 
 #elif __linux__
 	return vec4(data[0][i], data[1][i], data[2][i], data[3][i]);
@@ -415,11 +403,14 @@ vec4 mat4::row(const int &i) {
 	// benchmarks for 100000000 iterations
 	// Two transpositions, no redirection to mat4::column:	15.896s
 	// Two transpositions, redirection to mat4::column:		18.332s
-	// Naive implementation:								14.140s. !	
+	// Naive implementation:								14.140s. !
+	// copy, transpose:										11.354s
+	
+	// for comparison: column, 100000000 iterations:		4.7s
 
 }
 
-vec4 mat4::column(const int &i) {
+vec4 mat4::column(const int &i) const {
 #ifdef _WIN32
 	return vec4(this->data[i]);
 #elif __linux__
@@ -446,7 +437,7 @@ void mat4::assignToRow(const int &row, const vec4& v) {
 	
 	// this could (and probably should) be done with a reference, like this:
 	// mat4.row(i) = vec4(...). However, this is only possible if the mat4 is 
-	// constructed of actual vec4s.
+	// constructed of actual vec4s (which is something one should consider anyway)
 
 	this->T();
 	this->data[row] = v.data;
@@ -479,7 +470,7 @@ void mat4::printRaw() const {
 	const float * const ptr = (float*)&this->data[0];
 		
 #ifdef _WIN32
-	static const char* fmt = "%4.3f %4.3f %4.3f %4.3f\n";
+	const char* fmt = "%4.3f %4.3f %4.3f %4.3f\n";
 
 	for (int i = 0; i < 16; i += 4)
 		printf(fmt, *(ptr + i), *(ptr + i + 1), *(ptr + i + 2), *(ptr + i + 3));
@@ -566,6 +557,7 @@ mat4 mat4::transposed() const {
 
 }
 
+// i'm not quite sure why anybody would ever want to construct a quaternion like this :-XD
 Quaternion::Quaternion(float x, float y, float z, float w) { 
 	data = _mm_set_ps(w, z, y, x);	// in reverse order
 }
@@ -576,7 +568,7 @@ Quaternion Quaternion::conjugate() const {
 	return Quaternion(_mm_mul_ps(this->data, QUAT_CONJUGATE));	
 }
 
-void Quaternion::print() const { printf("%f %f %f %f\n\n", element(Q::x), element(Q::y), element(Q::z), element(Q::w)); }
+void Quaternion::print() const { printf("[(%4.3f, %4.3f, %4.3f), %4.3f]\n\n", element(Q::x), element(Q::y), element(Q::z), element(Q::w)); }
 
 
 void Quaternion::normalize() { 
@@ -598,10 +590,10 @@ Quaternion Quaternion::operator*(const Quaternion &b) const {
 	const Quaternion &a = (*this);
 	Quaternion ret(
 	_mm_sub_ps(
-	_mm_mul_ps(_mm_shuffle_ps(a.data, a.data, mask231), _mm_shuffle_ps(b.data, b.data, mask312)),
-	_mm_mul_ps(_mm_shuffle_ps(a.data, a.data, mask312), _mm_shuffle_ps(b.data, b.data, mask231))));
+	_mm_mul_ps(_mm_shuffle_ps(a.data, a.data, mask3021), _mm_shuffle_ps(b.data, b.data, mask3102)),
+	_mm_mul_ps(_mm_shuffle_ps(a.data, a.data, mask3102), _mm_shuffle_ps(b.data, b.data, mask3021))));
 
-	ret.data.m128_f32[Q::w] = a.data.m128_f32[Q::w]*b.data.m128_f32[Q::w] + _mm_dp_ps(a.data, b.data, dp_mask).m128_f32[0];
+	ret.data.m128_f32[Q::w] = a.data.m128_f32[Q::w]*b.data.m128_f32[Q::w] + _mm_dp_ps(a.data, b.data, xyz_dot_mask).m128_f32[0];
 
 	return ret;
 
@@ -609,6 +601,10 @@ Quaternion Quaternion::operator*(const Quaternion &b) const {
 	//nyi
 #endif 
 
+}
+
+Quaternion Quaternion::operator+(const Quaternion& b) const {
+	return Quaternion(_mm_add_ps(this->data, b.data));
 }
 
 vec4 Quaternion::operator*(const vec4& b) const {
@@ -622,7 +618,7 @@ vec4 Quaternion::operator*(const vec4& b) const {
 	res_q = vec_q * (*this).conjugate();
 	res_q = (*this)*res_q;
 	
-	return vec4(res_q.data);
+	return vec4(res_q.data);	// the w component probably contains some garbage, but it's not used anyway
 }
 
 mat4 Quaternion::toRotationMatrix() const {
@@ -631,15 +627,19 @@ mat4 Quaternion::toRotationMatrix() const {
 	// 2 multiplications, two shuffles, and one regular
 	// multiplication. not sure it's quite worth it though :P
 
-	const float x2 = element(Q::x)*element(Q::x);
-	const float y2 = element(Q::y)*element(Q::y);
-	const float z2 = element(Q::z)*element(Q::z);
-	const float xy = element(Q::x)*element(Q::y);
-	const float xz = element(Q::x)*element(Q::z);
-	const float xw = element(Q::x)*element(Q::w);
-	const float yz = element(Q::y)*element(Q::z);
-	const float yw = element(Q::y)*element(Q::w);
-	const float zw = element(Q::z)*element(Q::w);
+	// ASSUMING NORMALIZED QUATERNION!
+
+	using namespace Q;	// to use x, y etc. instead of Q::x, Q::y
+
+	const float x2 = element(x)*element(x);
+	const float y2 = element(y)*element(y);
+	const float z2 = element(z)*element(z);
+	const float xy = element(x)*element(y);
+	const float xz = element(x)*element(z);
+	const float xw = element(x)*element(w);
+	const float yz = element(y)*element(z);
+	const float yw = element(y)*element(w);
+	const float zw = element(z)*element(w);
 
 	return mat4(vec4(1.0 - 2.0*(y2 + z2), 2.0*(xy-zw), 2.0*(xz + yw), 0.0f),
 				vec4(2.0 * (xy + zw), 1.0 - 2.0*(x2 + z2), 2.0*(yz - xw), 0.0),

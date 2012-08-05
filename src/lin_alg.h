@@ -12,6 +12,10 @@
 #include <smmintrin.h>
 #endif
 
+namespace V {
+	enum { x = 0, y = 1, z = 2, w = 3 };
+}
+
 enum { MAT_ZERO = 0x0, MAT_IDENTITY = 0x1 };
 
 const char* checkCPUCapabilities();
@@ -25,26 +29,13 @@ struct vec4 {
 	vec4(const __m128 &a) : data(a) {} ;
 #elif __linux__
 struct vec4 {
-	float data[4];
+	float data[4];	// this is going to get replaced as well
 #endif
 	vec4();	
 	vec4(float _x, float _y, float _z, float _w);	
 	vec4(const float * const a);
-	inline float& operator() (const int & row) {	
-		#ifdef _WIN32
-		return data.m128_f32[row];
-		#elif __linux__
-		return data[row];
-		#endif
-	}
-	
-	inline float vec4::elementAt(const int& row) const {
-	#ifdef _WIN32
-		return data.m128_f32[row];
-	#elif __linux__
-		return data[row];
-	#endif
-	}	
+	inline float& operator() (const int & row) { return data.m128_f32[row]; }
+	inline float vec4::elementAt(const int& row) const { return data.m128_f32[row];	}	
 
 	// see also: vec4 operator*(const float& scalar, vec4& v);
 
@@ -88,11 +79,11 @@ struct mat4 {
 	inline float& operator() ( const int &column, const int &row ) { return data[column].m128_f32[row]; }
 	inline float mat4::elementAt(const int &column, const int &row) const { return data[column].m128_f32[row]; }
 	
-	mat4 operator* (const mat4 &R) const;	// the other matrix needs to be transposed, hence no const qualifier
+	mat4 operator* (const mat4 &R) const;
 	vec4 operator* (const vec4 &R) const;
 	
-	vec4 row(const int& i);	// these two should be const, but optimization is a higher priority :D
-	vec4 column(const int& i);
+	vec4 row(const int& i) const;
+	vec4 column(const int& i) const;
 
 	void assignToRow(const int& row, const vec4& v);
 	void assignToColumn(const int& column, const vec4& v);
@@ -105,6 +96,7 @@ struct mat4 {
 	void zero();
 	void identity();	// "in place identity"
 	void T();			// "in place transpose"
+
 	mat4 transposed() const;
 	
 	// T(): benchmarking results for 100000000 iterations:
@@ -112,8 +104,8 @@ struct mat4 {
 	// SSE (microsoft macro _MM_TRANSPOSE4_PS):
 	//		memcpy/_mm_store_ps:		8.3 s.
 	//		_mm_set_ps/_mm_store_ps:	5.6 s.
-	//		_mm_set_ps/_mm_storeu_ps:	5.6 s.	identical (?)
-	//		_mm_loadu_ps/_mm_store_ps:	4.8 s.	Nice!
+	//		_mm_set_ps/_mm_storeu_ps:	5.6 s.	~identical to aligned(?)
+	//		_mm_loadu_ps/_mm_store_ps:	4.8 s.	
 	//	
 	// NEW bare edition:				2.2 s. :P
 	//
@@ -130,9 +122,11 @@ struct mat4 {
 	
 };
 
+// consider capitalizing these.
 namespace Q {
 	enum {x = 0, y = 1, z = 2, w = 3};
 };
+
 #ifdef _WIN32
 __declspec(align(16)) struct Quaternion {
 	__m128 data;
@@ -153,6 +147,7 @@ struct Quaternion {
 
 	void print() const;
 
+	Quaternion operator+(const Quaternion& b) const;
 	Quaternion operator*(const Quaternion& b) const;
 	vec4 operator*(const vec4& b) const;
 

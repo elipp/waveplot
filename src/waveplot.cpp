@@ -13,6 +13,10 @@
 #include <SDL/SDL.h>
 #endif
 
+#ifdef _WIN32 
+#include <process.h>
+#endif
+
 #include <CL/cl.h>	// OpenCL =)
 
 #include <cstdio>
@@ -89,6 +93,7 @@ static const float zoom_step = 10.0, zoom_min = -64*zoom_step, zoom_max = 24*zoo
 
 static mat4 wave_projection, wave_modelview;
 
+
 namespace Text {
 	mat4 projection_matrix;	// since this will never change.
 	mat4 modelview_matrix(MAT_IDENTITY);
@@ -105,6 +110,8 @@ namespace View {
 	static vec4 wave_position, // constructed as zero vectors.
 			wave_view_velocity,// used to give the notion of inertia to the motion of the camera
 			wave_view_velocity_sample1;
+	
+	static Quaternion rot;	// initialized as the identity quaternion (0, 0, 0, 1)
 }
 
 static const double frame_interval = 1.0/60.0;
@@ -237,6 +244,28 @@ void generateWaveVertexArray(triangle* triangles, std::size_t samplecount) {
 
 }
 
+bufferObject generateWaveBufferObjects(vertex *const vertices, GLuint* indices, std::size_t samplecount) {
+
+	const std::size_t vertex_count = (2*samplecount-2);
+	const std::size_t index_count = BUFSIZE_MAX; //:D
+
+	bufferObject ret;
+	glGenBuffers(1, &ret.VBOid);
+	glBindBuffer(GL_ARRAY_BUFFER, ret.VBOid);
+	glBufferData(GL_ARRAY_BUFFER, (vertex_count)*sizeof(vertex), (const GLvoid*)vertices, GL_STATIC_DRAW);
+
+	delete [] vertices;
+
+	glGenBuffers(1, &ret.IBOid);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ret.IBOid);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count*sizeof(GLuint), (const GLvoid*)indices, GL_STATIC_DRAW);
+
+	delete [] indices;
+
+	return ret;
+
+}
+
 void destroyWaveVertexArray() {
 
 	glDeleteBuffers(1, &waveVertexArray.VBOid);
@@ -358,6 +387,147 @@ triangle *bakeWaveVertexArrayUsingLineIntersections(float* samples, const std::s
 	triangles[triangle_count-1].v3 = vertex(triangles[triangle_count-2].v1.x+dx, half_WIN_H*samples[samplecount-1] + half_WIN_H, 1.0, 0.5);
 
 	return triangles;
+}
+
+
+vertex* bakeWaveVertexBufferUsingLineIntersections(float* samples, const std::size_t& samplecount) {
+	
+	const std::size_t vertex_count = 2*samplecount-2;
+	vertex* vertices = new vertex[vertex_count];
+	static const double dx = 1.0/4.0;
+	static const float h = half_linewidth;
+
+	float x1 = 0.0;
+	float y1 = half_WIN_H*samples[0] + half_WIN_H;
+
+	float x2 = x1 + dx;
+	float y2 = half_WIN_H*samples[1] + half_WIN_H;
+
+	float x3 = x2 + dx;
+	float y3 = half_WIN_H*samples[2] + half_WIN_H;
+
+	float k1 = (y2-y1)/dx;
+	float alpha_1 = atan(k1);
+	
+	float k2 = (y3-y2)/dx;
+	float alpha_2 = atan(k2);
+
+	float px_2 = h*sin(alpha_1);
+	float py_2 = h*cos(alpha_1);
+	
+	vertices[0] = vertex(x1, y1, 0.0, 0.5);
+	vertices[1] = vertex(x2+px_2, WIN_H - (y2-py_2), 1.0, 0.0);
+	vertices[2] = vertex(x2-px_2, WIN_H - (y2+py_2), 1.0, 1.0);
+	
+	int i = 3, j = 3;
+
+	float x2_c, y2_c;
+	float dk;
+	float px_3, py_3;
+	float res_x2_1, res_y2_1, res_x2_2, res_y2_2;
+
+	while (i < vertex_count - 1) 
+	{
+		//    y - y0 = k(x - x0)
+		// =>      y = k(x - x0) + y0
+
+		x1 = x2; y1 = y2;
+		x2 = x3; y2 = y3;
+		x3 = x2+dx;
+		y3 = half_WIN_H*samples[j] + half_WIN_H;
+
+		k1 = (y2-y1)/dx;	// dx = constant
+		alpha_1 = atan(k1);	// can be copied from previous result
+							// also, this temporary isn't necessary
+	
+		k2 = (y3-y2)/dx;
+		alpha_2 = atan(k2);
+
+		px_2 = h*sin(alpha_1);
+		py_2 = h*cos(alpha_1);
+		
+		px_3 = h*sin(alpha_2);
+		py_3 = h*cos(alpha_2);
+
+		dk = k1-k2;
+
+		if (fabs(dk) < 0.3) {
+
+			res_x2_1 = x2 - px_2;
+			res_y2_1 = y2 + py_2;
+
+			res_x2_2 = x2 + px_2;
+			res_y2_2 = y2 - py_2;
+
+		}
+
+		else {
+			
+			// calculate line intersections
+
+			x2_c = (x2 - px_2);
+			y2_c = (y2 + py_2);
+			
+			res_x2_1 = (k1*x2_c - y2_c - k2*(x3-px_3) + (y3+py_3))/dk;
+			res_y2_1 = k1*(res_x2_1 - x2_c) + y2_c;
+		
+			x2_c = (x2 + px_2);
+			y2_c = (y2 - py_2);
+
+			res_x2_2 = (k1*x2_c - y2_c - k2*(x3+px_3) + (y3-py_3))/dk;
+			res_y2_2 = k1*(res_x2_2 - x2_c) + y2_c;
+		
+		}
+		
+		// invert computed y values
+
+		res_y2_1 = (WIN_H - res_y2_1);
+		res_y2_2 = (WIN_H - res_y2_2);	
+	
+		vertices[i] = vertex(res_x2_1, res_y2_1, 1.0, 1.0); 
+		vertices[i+1] = vertex(res_x2_2, res_y2_2, 1.0, 0.0);
+		++j;
+		i += 2;
+
+	}
+
+	vertices[vertex_count-1] = vertex(vertices[vertex_count-2].x+dx, half_WIN_H*samples[samplecount-1] + half_WIN_H, 1.0, 0.5);
+
+	return vertices;
+
+}
+
+
+GLuint *generateIndexBufferWithSharedVertices() {
+
+	// just use BUFSIZE_MAX :D
+	GLuint *indexBuffer = new GLuint[BUFSIZE_MAX];
+	
+	indexBuffer[0] = 0;
+	indexBuffer[1] = 1;
+	indexBuffer[2] = 2;
+
+	int i = 3, j = 1;
+
+	while (i < BUFSIZE_MAX) {
+
+		// 1, 2, 3, 4, 3, 2
+
+		indexBuffer[i] = j;
+		indexBuffer[i+1] = j+1;
+		indexBuffer[i+2] = j+2;
+
+		indexBuffer[i+3] = j+3;
+		indexBuffer[i+4] = j+2;
+		indexBuffer[i+5] = j+1;
+
+		i += 6;
+		j += 2;
+
+	}
+
+	return indexBuffer;
+
 }
 
 void generateWaveVBOs() {
@@ -643,8 +813,9 @@ void drawWaveVertexArray() {
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
 
-	//wave_projection.make_proj_orthographic(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), -1.0f, 1.0f);
-	wave_projection.make_proj_perspective(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), 1.0f, 100.0f);
+	wave_projection.make_proj_orthographic(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), -1.0f, 1.0f);
+	//wave_projection.make_proj_perspective(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), 1.0f, 100.0f);
+	
 	wave_modelview.identity();
 
 	wave_modelview(3,0) = View::wave_position(0);
@@ -732,6 +903,11 @@ void drawText() {
 
 }
 
+void ThreadProcess(void* arg) {
+
+	arg = generateIndexBufferWithSharedVertices();
+	_endthread();
+}
 
 bool readWAVFile(const std::string& filename) {
 	
@@ -751,12 +927,20 @@ bool readWAVFile(const std::string& filename) {
 		BUFSIZE=BUFSIZE_MAX;
 	} else { BUFSIZE = num_samples; }
 
-	triangle *triangles = bakeWaveVertexArrayUsingLineIntersections(samples, BUFSIZE);
-	generateWaveVertexArray(triangles, BUFSIZE);
-	delete [] triangles;
+	//triangle *triangles = bakeWaveVertexArrayUsingLineIntersections(samples, BUFSIZE);
+	
+	GLuint *indices = NULL;
+	HANDLE handle;
+	handle = (HANDLE) _beginthread(ThreadProcess, 0, (void*)indices);
+	// while this is running ... :P
+	vertex* vertices = bakeWaveVertexBufferUsingLineIntersections(samples, BUFSIZE);
+		
+	WaitForSingleObject(handle, INFINITE);
+	
+	//GLuint *indices = generateIndexBufferWithSharedVertices();
 
-	delete [] samples;
-
+//	waveData = generateWaveBufferObjects(vertices, indices, num_samples);
+	
 	return true;
 
 }
@@ -1204,9 +1388,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		return 1;
 	}
 
-	int running=1;
-
-
 
 	//float tmpx = 0.0;
 ///	static float step = 0.125;
@@ -1221,7 +1402,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	//generateWaveVBOs();
 	//generateSliderVBOs();
-
+		
+	int running=1;
 
 	Timer::init();
 
@@ -1290,7 +1472,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 				}
 
 				control();
-				draw(); 
+				//draw(); 
 				SwapBuffers(hDC);
 	
 				double t_interval = Timer::getSeconds();
