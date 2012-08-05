@@ -88,8 +88,8 @@ struct mat4 {
 	inline float& operator() ( const int &column, const int &row ) { return data[column].m128_f32[row]; }
 	inline float mat4::elementAt(const int &column, const int &row) const { return data[column].m128_f32[row]; }
 	
-	mat4 operator* (const mat4 &R);	// the other matrix needs to be transposed, hence no const qualifier
-	vec4 operator* (const vec4 &R);
+	mat4 operator* (const mat4 &R) const;	// the other matrix needs to be transposed, hence no const qualifier
+	vec4 operator* (const vec4 &R) const;
 	
 	vec4 row(const int& i);	// these two should be const, but optimization is a higher priority :D
 	vec4 column(const int& i);
@@ -105,6 +105,7 @@ struct mat4 {
 	void zero();
 	void identity();	// "in place identity"
 	void T();			// "in place transpose"
+	mat4 transposed() const;
 	
 	// T(): benchmarking results for 100000000 iterations:
 	//
@@ -149,6 +150,8 @@ struct Quaternion {
 	
 	void normalize();
 	Quaternion conjugate() const;
+
+	void print() const;
 
 	Quaternion operator*(const Quaternion& b) const;
 	vec4 operator*(const vec4& b) const;

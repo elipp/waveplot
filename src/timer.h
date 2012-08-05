@@ -26,7 +26,11 @@ namespace Timer {
 	}
 	inline double getMilliSeconds() {
 		return double(1000*(Timer::getSeconds()));
-	}	
+	}
+	inline double getMicroSeconds() {
+		return double(1000000*(Timer::getSeconds()));
+	}
+
 }
 
 #ifdef _WIN32

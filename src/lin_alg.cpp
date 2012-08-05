@@ -2,7 +2,7 @@
 
 #ifdef _WIN32
 static const __m128 ZERO = _mm_setzero_ps();
-static const __m128 QUAT_CONJUGATE = _mm_set_ps(1.0, -1.0, -1.0, -1.0);
+static const __m128 QUAT_CONJUGATE = _mm_set_ps(1.0, -1.0, -1.0, -1.0);	// in reverse order!
 static const __m128 QUAT_NO_ROTATION = _mm_set_ps(1.0, 0.0, 0.0, 0.0);
 static const int mask231 = 0xD8, // 11 01 10 00_2
 				 mask312 = 0xE1, // 11 10 00 01_2
@@ -159,10 +159,8 @@ float vec4::length4() const {
 
 void vec4::normalize() {
 #ifdef _WIN32
-	const float l_recip = 1.0/sqrt(_mm_dp_ps(this->data, this->data, 0x71).m128_f32[0]); // only x,y,z components
-	const __m128 d = _mm_set1_ps(l_recip);
-
-	this->data = _mm_mul_ps(this->data, d);
+	const float l_recip = 1.0/sqrt(_mm_dp_ps(this->data, this->data, xyz_dot_mask).m128_f32[0]); // only x,y,z components
+	this->data = _mm_mul_ps(this->data, _mm_set1_ps(l_recip));
 #elif __linux__
 
 	const float l_recip = 1.0/sqrt(length3());
@@ -300,29 +298,22 @@ mat4::mat4(const vec4& c1, const vec4& c2, const vec4& c3, const vec4& c4) {
 
 }
 
-mat4 mat4::operator* (const mat4& R) {
+mat4 mat4::operator* (const mat4& R) const {
 
 #ifdef _WIN32
 
-	mat4 &L = (*this);
+	mat4 L = (*this).transposed();
 	mat4 ret;
 	
 	// we'll choose to transpose the other matrix, and instead of calling the perhaps
 	// more intuitive row(), we'll be calling column(), which is a LOT faster in comparison.
-	L.T();
-	
-	static const int mask = 0xF1;	// a different mask than what's used in dot().
-									// this time, we want to include the 4th component as well
 	
 	// calculate using dot products (_mm_dp_ps)
-	
-
 	for (int i = 0; i < 4; i++) {
 		for (int j = 0; j < 4; j++) {
-			ret.data[j].m128_f32[i] = _mm_dp_ps(R.data[j], L.data[i], mask).m128_f32[0];
+			ret.data[j].m128_f32[i] = _mm_dp_ps(R.data[j], L.data[i], xyzw_dot_mask).m128_f32[0];
 		}
 	}
-	L.T();
 	
 	return ret;
 #elif __linux__
@@ -352,28 +343,17 @@ void mat4::zero() {
 #endif
 }
 
-vec4 mat4::operator* (const vec4& R) {
+vec4 mat4::operator* (const vec4& R) const {
 
 #ifdef _WIN32
-	/*static const int mask = 0xF1; // == 1111 0001_2, which means "use x,y,z,w components of the vectors, store result in the lowest word only"
-	mat4 &M = (*this);
+	
+	// try with temporary mat4? :P
+	// result: performs better!
+	const mat4 M = (*this).transposed();
 	vec4 v;
-	// dot() can't be used here, since it discards the w component!
 	for (int i = 0; i < 4; i++) 
-		v.data.m128_f32[i] = _mm_dp_ps(M.row(i).data, R.data, mask).m128_f32[0]; 
-	
-	return v;*/
-	
-	// with transposition :D
-	mat4 &M = (*this);
-	vec4 v;
-	static const int mask = 0xF1;
-	M.T();
-	for (int i = 0; i < 4; i++) 
-		//v.data.m128_f32[i] = _mm_dp_ps(M.column(i).data, R.data, mask).m128_f32[0];	
-		v.data.m128_f32[i] = _mm_dp_ps(M.data[i], R.data, mask).m128_f32[0];	
-	
-	M.T();
+		v.data.m128_f32[i] = _mm_dp_ps(M.data[i], R.data, xyzw_dot_mask).m128_f32[0];	
+
 	return v;
 
 #elif __linux
@@ -417,7 +397,8 @@ void mat4::identity() {
 vec4 mat4::row(const int &i) {
 #ifdef _WIN32
 		
-	this->T();
+	this->T();	// we'll have to determine whether copying the matrix to a temporary is actually faster than 
+				// two transpositions on the original
 	const __m128 row = this->data[i];
 	this->T();
 	return vec4(row);
@@ -462,6 +443,10 @@ void mat4::assignToRow(const int &row, const vec4& v) {
 	// 2. transposition is blazing fast (:D)
 
 	// we could just transpose the matrix and do some fancy sse shit with it.
+	
+	// this could (and probably should) be done with a reference, like this:
+	// mat4.row(i) = vec4(...). However, this is only possible if the mat4 is 
+	// constructed of actual vec4s.
 
 	this->T();
 	this->data[row] = v.data;
@@ -476,7 +461,6 @@ void mat4::assignToRow(const int &row, const vec4& v) {
 #endif
 
 }
-
 // return by void pointer? :P
 void *mat4::rawdata() const {
 #ifdef _WIN32
@@ -574,6 +558,14 @@ void mat4::T() {
 #endif
 }
 
+mat4 mat4::transposed() const {
+
+	mat4 ret = (*this);	// copying can't be avoided
+	_MM_TRANSPOSE4_PS(ret.data[0], ret.data[1], ret.data[2], ret.data[3]);
+	return ret;
+
+}
+
 Quaternion::Quaternion(float x, float y, float z, float w) { 
 	data = _mm_set_ps(w, z, y, x);	// in reverse order
 }
@@ -581,15 +573,16 @@ Quaternion::Quaternion(float x, float y, float z, float w) {
 Quaternion::Quaternion() { data=QUAT_NO_ROTATION; }
 
 Quaternion Quaternion::conjugate() const {
-	const Quaternion &Q = (*this);
 	return Quaternion(_mm_mul_ps(this->data, QUAT_CONJUGATE));	
 }
 
+void Quaternion::print() const { printf("%f %f %f %f\n\n", element(Q::x), element(Q::y), element(Q::z), element(Q::w)); }
+
+
 void Quaternion::normalize() { 
 
-	static const int mask = 0xF1; // include all components in computation
 	Quaternion &Q = (*this);
-	const float mag_squared = _mm_dp_ps(Q.data, Q.data, mask).m128_f32[0];
+	const float mag_squared = _mm_dp_ps(Q.data, Q.data, xyzw_dot_mask).m128_f32[0];
 	if (fabs(mag_squared-1.0) > 0.001) {	// to prevent calculations from exploding
 		Q.data = _mm_mul_ps(Q.data, _mm_set1_ps(1.0/sqrt(mag_squared)));	
 	}
@@ -620,15 +613,14 @@ Quaternion Quaternion::operator*(const Quaternion &b) const {
 
 vec4 Quaternion::operator*(const vec4& b) const {
 
-	const Quaternion &q = (*this);
 	vec4 v(b);
 	v.normalize();
 	Quaternion vec_q, res_q;
 	vec_q.data = b.data;
 	vec_q(Q::w) = 0.0;
 
-	res_q = vec_q * q.conjugate();
-	res_q = q*res_q;
+	res_q = vec_q * (*this).conjugate();
+	res_q = (*this)*res_q;
 	
 	return vec4(res_q.data);
 }
