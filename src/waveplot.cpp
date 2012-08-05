@@ -244,32 +244,34 @@ void generateWaveVertexArray(triangle* triangles, std::size_t samplecount) {
 
 }
 
-bufferObject generateWaveBufferObjects(vertex *const vertices, GLuint* indices, std::size_t samplecount) {
+GLuint generateWaveVertexBufferObject(vertex* vertices) {
 
-	const std::size_t vertex_count = (2*samplecount-2);
-	const std::size_t index_count = BUFSIZE_MAX; //:D
+	const std::size_t vertex_count = (2*BUFSIZE-2);
 
-	bufferObject ret;
-	glGenBuffers(1, &ret.VBOid);
-	glBindBuffer(GL_ARRAY_BUFFER, ret.VBOid);
+	GLuint ret;
+	glGenBuffers(1, &ret);
+	glBindBuffer(GL_ARRAY_BUFFER, ret);
 	glBufferData(GL_ARRAY_BUFFER, (vertex_count)*sizeof(vertex), (const GLvoid*)vertices, GL_STATIC_DRAW);
-
-	delete [] vertices;
-
-	glGenBuffers(1, &ret.IBOid);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ret.IBOid);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count*sizeof(GLuint), (const GLvoid*)indices, GL_STATIC_DRAW);
-
-	delete [] indices;
 
 	return ret;
 
 }
 
-void destroyWaveVertexArray() {
+GLuint generateGlobalIndexBuffer(GLuint *indices) {
 
-	glDeleteBuffers(1, &waveVertexArray.VBOid);
-	// the vertex array doesn't have an IBO. lolz :D
+	GLuint ret;
+	glGenBuffers(1, &ret);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ret);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, BUFSIZE_MAX*sizeof(GLuint), (const GLvoid*)indices, GL_STATIC_DRAW);
+
+	return ret;
+
+}
+
+void destroyCurrentWaveVertexBuffer() {
+
+	glDeleteBuffers(1, &waveData.VBOid);
+	// the vertex buffer has a static IBO, allocated to BUFSIZE_MAX
 	//glDeleteBuffers(1, &waveVertexArray.IBOid);
 
 }
@@ -502,14 +504,14 @@ GLuint *generateIndexBufferWithSharedVertices() {
 
 	// just use BUFSIZE_MAX :D
 	GLuint *indexBuffer = new GLuint[BUFSIZE_MAX];
-	
+
 	indexBuffer[0] = 0;
 	indexBuffer[1] = 1;
 	indexBuffer[2] = 2;
 
 	int i = 3, j = 1;
 
-	while (i < BUFSIZE_MAX) {
+	while (i < BUFSIZE_MAX - 6) {
 
 		// 1, 2, 3, 4, 3, 2
 
@@ -525,71 +527,9 @@ GLuint *generateIndexBufferWithSharedVertices() {
 		j += 2;
 
 	}
-
 	return indexBuffer;
 
 }
-
-void generateWaveVBOs() {
-
-	glGenBuffers(1, &waveData.VBOid);
-	glBindBuffer(GL_ARRAY_BUFFER, waveData.VBOid);
-	glBufferData(GL_ARRAY_BUFFER, 4*BUFSIZE*sizeof(vertex), &lines[0], GL_STATIC_DRAW);
-
-	const unsigned int num_indices = 6*BUFSIZE;
-
-#ifdef _WIN32
-	GLuint *indices = new GLuint[num_indices];	// three indices per triangle, two triangles per line, BUFSIZE lines
-
-#elif __linux__						
-	if (BUFSIZE > (0x01<<16)/6) {	// eventually, this will be 0x01<<16/4 (smooth, shared seams)
-
-		/*
-		 * TODO: Split VBOs into chunks of BUFSIZE/4
-		 */
-		// std::cout << "Buffer size is over 16384. Expect problems.";
-		std::cout << "Buffer size is over 10922 (" << num_indices <<"). Expect problems.";
-
-
-	}
-
-	GLushort *indices = new GLushort[num_indices];	// apparently, the linux mesa driver doesn't support GL_UNSIGNED_INT
-#endif
-
-	int i = 0;
-	int j = 0;
-
-
-	while (i < num_indices) {
-
-		indices[i] = j;
-		indices[i+1] = j+1;
-		indices[i+2] = j+3;
-		indices[i+3] = j+1;
-		indices[i+4] = j+2;
-		indices[i+5] = j+3;
-
-		i += 6;
-		j += 4;
-
-
-	}
-
-	//debug
-
-	glGenBuffers(1, &waveData.IBOid);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, waveData.IBOid);
-#ifdef _WIN32
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, num_indices*(sizeof(GLuint)), indices, GL_STATIC_DRAW);
-#elif __linux__
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, num_indices*(sizeof(GLushort)), indices, GL_STATIC_DRAW);
-#endif
-
-	delete [] indices;
-
-
-}
-
 
 bool InitGL()
 {
@@ -763,7 +703,6 @@ void drawSliders() {
 
 void drawWave() {
 
-
 	glBindBuffer(GL_ARRAY_BUFFER, waveData.VBOid);
 
 #ifdef _WIN32
@@ -778,9 +717,8 @@ void drawWave() {
 
 #endif
 
-	wave_projection.make_proj_orthographic(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom*aspect_ratio), -(zoom*aspect_ratio), -1.0f, 1.0f);
+	wave_projection.make_proj_orthographic(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom), -(zoom), -1.0f, 1.0f);
 	wave_modelview.identity();
-	// no translation facilities xDD
 	wave_modelview(3,0) = View::wave_position(0);
 	wave_modelview(3,1) = View::wave_position(1);
 	glUseProgram(programHandle);
@@ -793,6 +731,7 @@ void drawWave() {
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
 #ifdef _WIN32
+	// consider glDrawRangeElements, it's just perfect for this application
 	glDrawElements(GL_TRIANGLES, BUFSIZE*2, GL_UNSIGNED_INT, NULL);
 #elif __linux__
 	glDrawElements(GL_TRIANGLES, BUFSIZE*2, GL_UNSIGNED_SHORT, NULL);
@@ -800,7 +739,6 @@ void drawWave() {
 	
 	glUseProgram(0);
 	
-	//glPopMatrix();
 }
 
 
@@ -903,9 +841,11 @@ void drawText() {
 
 }
 
-void ThreadProcess(void* arg) {
 
-	arg = generateIndexBufferWithSharedVertices();
+void GetIndices(void* arg) {
+
+	GLuint **p = (GLuint**)arg;
+	*p = generateIndexBufferWithSharedVertices();
 	_endthread();
 }
 
@@ -927,20 +867,17 @@ bool readWAVFile(const std::string& filename) {
 		BUFSIZE=BUFSIZE_MAX;
 	} else { BUFSIZE = num_samples; }
 
-	//triangle *triangles = bakeWaveVertexArrayUsingLineIntersections(samples, BUFSIZE);
-	
-	GLuint *indices = NULL;
-	HANDLE handle;
-	handle = (HANDLE) _beginthread(ThreadProcess, 0, (void*)indices);
-	// while this is running ... :P
-	vertex* vertices = bakeWaveVertexBufferUsingLineIntersections(samples, BUFSIZE);
-		
-	WaitForSingleObject(handle, INFINITE);
-	
-	//GLuint *indices = generateIndexBufferWithSharedVertices();
 
-//	waveData = generateWaveBufferObjects(vertices, indices, num_samples);
+	// the bakeWaveVertexBufferUsingLineIntersections is a bit slow...
+	// for a 110MB stereo WAV file, it takes ~ 18ms for the stereo->mono
+	// downmixing, 20 ms for file I/O, ~32ms for short -> float
+	// conversion with scaling, and another whopping 2532ms for bake.
+	// Parallelize loop perhaps?
+	vertex* vertices = bakeWaveVertexBufferUsingLineIntersections(samples, BUFSIZE);
+	waveData.VBOid = generateWaveVertexBufferObject(vertices);	
 	
+	delete [] vertices;
+		
 	return true;
 
 }
@@ -997,8 +934,8 @@ inline void draw() {
 
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	//drawWave();
-	drawWaveVertexArray();
+	drawWave();
+	//drawWaveVertexArray();
 	drawText();
 	//drawSliders();
 		
@@ -1383,7 +1320,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		return 1;
 	}
 
+	// start generating index buffer in another thread,
+	// since it's in no way related to any of the following 
+	// (or preceding) operations
 
+	GLuint *indices = NULL;
+	HANDLE handle;
+
+	// the gain is marginal at best, but it's a great drill :P
+	handle = (HANDLE) _beginthread(GetIndices, 0, (void*)&indices);
+	
 	if (!readWAVFile(input_filename)) {
 		return 1;
 	}
@@ -1404,6 +1350,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	//generateSliderVBOs();
 		
 	int running=1;
+
+	WaitForSingleObject(handle, INFINITE);
+
+	waveData.IBOid = generateGlobalIndexBuffer(indices);
+	delete [] indices;
 
 	Timer::init();
 
@@ -1439,7 +1390,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 						if (input_filename != newfilename) {
 							input_filename = newfilename;
 							// destroy previous data, open new
-							destroyWaveVertexArray();
+							destroyCurrentWaveVertexBuffer();
 							if (!readWAVFile(newfilename)) {
 								MessageBox(NULL, "Couldn't open file!", "Error!", NULL);
 								return 1;
@@ -1472,13 +1423,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 				}
 
 				control();
-				//draw(); 
+				draw(); 
 				SwapBuffers(hDC);
 	
 				double t_interval = Timer::getSeconds();
 				
-				Timer::start();	// why didn't i think of this earlier :D
-				
+				Timer::start();
 
 				double fps = 1/t_interval;
 				char buffer[8];
