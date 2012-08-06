@@ -48,7 +48,7 @@ glyph* wpstring::generateGlyphs() {
 		for (j=0; j < 4; j++) {
 			
 			glyphs[i].vertices[j].x = x + a +((j>>1)&1)*6.0;
-			glyphs[i].vertices[j].y = y + (((j+1)>>1)&1)*11.0;
+			glyphs[i].vertices[j].y = y + (((j+1)>>1)&1)*12.0;
 			glyphs[i].vertices[j].u = glyph_texcoords[texcoord_index_from_char(text[i])][2*j];
 			glyphs[i].vertices[j].v = glyph_texcoords[texcoord_index_from_char(text[i])][2*j+1];
 		}

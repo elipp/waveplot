@@ -53,14 +53,14 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);	// declare wndproc
 /* 		GL_TRIANGLES SCHEMATIC:	(NEW!)
  *
  *
- *		1---------------------4
+ *		1---------------------3
  *	        |		    ' |
  *		|		 "    |
  *		|	      '	      |
  *		|	   "	      |
  *		|	'	      |
  *	        |    "		      |
- *	        2`--------------------3 
+ *	        2`--------------------4 
  *	       
  *	       A counter-clockwise ordering is preferred.
  *
@@ -81,21 +81,14 @@ static texture gradient_texture, font_texture, slider_texture;
 static std::vector<line> lines;
 static std::vector<wpstring> strings;
 
-static std::size_t displayrange_left = 0;
-static std::size_t displayrange_right = 8*WIN_W;
-
 static GLuint VertexShaderId, FragmentShaderId, programHandle, uniform_texture1_loc, uniform_projection_loc, uniform_modelview_loc;
-
 static bufferObject waveData, sliderData, waveVertexArray;
-
-static float zoom = 0.0;
-static const float zoom_step = 10.0, zoom_min = -64*zoom_step, zoom_max = 24*zoom_step;
-
 static mat4 wave_projection, wave_modelview;
-
+static bool polygonModeToggle = true;
+static const double dx = 1.0/4.0;
 
 namespace Text {
-	mat4 projection_matrix;	// since this will never change.
+	mat4 projection_matrix;
 	mat4 modelview_matrix(MAT_IDENTITY);
 }
 
@@ -107,14 +100,31 @@ namespace View {
 	static RECT windowRect;
 	static float dx, dy, prev_dx, prev_dy;
 	
+	static float zoom = 0.0;
+	static const float zoom_step = 10.0, zoom_min = -64*zoom_step, zoom_max = 24*zoom_step;
+	
 	static vec4 wave_position, // constructed as zero vectors.
 			wave_view_velocity,// used to give the notion of inertia to the motion of the camera
 			wave_view_velocity_sample1;
 	
 	static Quaternion rot;	// initialized as the identity quaternion (0, 0, 0, 1)
+
+	void zoomIn();
+	void zoomOut();
 }
 
-static const double frame_interval = 1.0/60.0;
+void View::zoomIn() {
+
+	View::zoom = View::zoom <= View::zoom_min ? View::zoom_min : View::zoom - View::zoom_step;
+
+}
+
+void View::zoomOut() {
+	View::zoom = View::zoom >= View::zoom_max ? View::zoom_max : View::zoom + View::zoom_step;
+}
+
+
+static const double frame_interval = 1.0/60.0;	// actually, handled by hardware vsync on my machine
 
 
 
@@ -169,39 +179,6 @@ bool texture::make_texture(const char* filename, GLint filter_flag) {
 		}
 	}
 	return false;
-
-}
-
-void zoomIn() {
-
-	zoom = zoom <= zoom_min ? zoom_min : zoom - zoom_step;
-
-	/*if (displacement > 0.0 && displayrange_left == 0) {
-		displayrange_left += 40;
-	}
-
-	displayrange_right -= 40;*/
-
-}
-
-void zoomOut() {
-	
-	zoom = zoom >= zoom_max ? zoom_max : zoom + zoom_step;
-
-	/*displayrange_left -= 40;
-	displayrange_right += 40;
-	*/
-}
-
-
-void translateLeft() {
-
-
-
-}
-
-void translateRight() {
-
 
 }
 
@@ -283,7 +260,7 @@ triangle *bakeWaveVertexArrayUsingLineIntersections(float* samples, const std::s
 	
 	const std::size_t triangle_count = 2*samplecount-1;
 	triangle* triangles = new triangle[triangle_count];
-	static const double dx = 1.0/4.0;
+
 	static const float h = half_linewidth;
 
 	float x1 = 0.0;
@@ -392,11 +369,10 @@ triangle *bakeWaveVertexArrayUsingLineIntersections(float* samples, const std::s
 }
 
 
-vertex* bakeWaveVertexBufferUsingLineIntersections(float* samples, const std::size_t& samplecount) {
+vertex* bakeWaveVertexBufferUsingLineIntersections(const float* samples, const std::size_t& samplecount) {
 	
 	const std::size_t vertex_count = 2*samplecount-2;
 	vertex* vertices = new vertex[vertex_count];
-	static const double dx = 1.0/4.0;
 	static const float h = half_linewidth;
 
 	float x1 = 0.0;
@@ -417,15 +393,23 @@ vertex* bakeWaveVertexBufferUsingLineIntersections(float* samples, const std::si
 	float px_2 = h*sin(alpha_1);
 	float py_2 = h*cos(alpha_1);
 	
-	vertices[0] = vertex(x1, y1, 0.0, 0.5);
-	vertices[1] = vertex(x2+px_2, WIN_H - (y2-py_2), 1.0, 0.0);
-	vertices[2] = vertex(x2-px_2, WIN_H - (y2+py_2), 1.0, 1.0);
+	vertices[0] = vertex(x2-px_2, WIN_H - (y2+py_2), 1.0, 0.0);
+	vertices[1] = vertex(x2+px_2, WIN_H - (y2-py_2), 1.0, 1.0);
+	vertices[2] = vertex(x1, y1, 0.0, 0.5);
+	//vertices[0] = vertex(-50, 400, 0, 0);
+	//vertices[1] = vertex(-50, 400, 0, 0);
+	//vertices[2] = vertex(-50, 400, 0, 0);
+	
+	printf("%f %f\n", vertices[0].x, vertices[0].y);
+	printf("%f %f\n", vertices[1].x, vertices[1].y);
+	printf("%f %f\n", vertices[2].x, vertices[2].y);
 	
 	int i = 3, j = 3;
-
+	
+	float alpha_3 = atan(((half_WIN_H*samples[3] + half_WIN_H)-y3)/dx);
 	float x2_c, y2_c;
 	float dk;
-	float px_3, py_3;
+	float px_3 = h*sin(alpha_3), py_3 = h*cos(alpha_3);
 	float res_x2_1, res_y2_1, res_x2_2, res_y2_2;
 
 	while (i < vertex_count - 1) 
@@ -439,15 +423,19 @@ vertex* bakeWaveVertexBufferUsingLineIntersections(float* samples, const std::si
 		y3 = half_WIN_H*samples[j] + half_WIN_H;
 
 		k1 = (y2-y1)/dx;	// dx = constant
-		alpha_1 = atan(k1);	// can be copied from previous result
+		//k1 = k2;
+		alpha_1 = alpha_2;	// can be copied from previous result
 							// also, this temporary isn't necessary
 	
 		k2 = (y3-y2)/dx;
 		alpha_2 = atan(k2);
 
-		px_2 = h*sin(alpha_1);
-		py_2 = h*cos(alpha_1);
+		//px_2 = h*sin(alpha_1);
+		//py_2 = h*cos(alpha_1);
 		
+		px_2 = px_3;
+		py_2 = py_3;
+
 		px_3 = h*sin(alpha_2);
 		py_3 = h*cos(alpha_2);
 
@@ -466,6 +454,16 @@ vertex* bakeWaveVertexBufferUsingLineIntersections(float* samples, const std::si
 		else {
 			
 			// calculate line intersections
+			
+			//    y - y0 = k(x - x0)
+			// =>      y = k(x - x0) + y0
+			
+			//	  set y1 = y2 
+			// => k1(x - x1) + y01 = k2(x - x2) + y02
+			//
+			// solving for x yields:
+			// x = (k1x1 - y01 - k2x2 + y02)/(k1 - k2).
+			// then solve for y.
 
 			x2_c = (x2 - px_2);
 			y2_c = (y2 + py_2);
@@ -488,11 +486,20 @@ vertex* bakeWaveVertexBufferUsingLineIntersections(float* samples, const std::si
 	
 		vertices[i] = vertex(res_x2_1, res_y2_1, 1.0, 1.0); 
 		vertices[i+1] = vertex(res_x2_2, res_y2_2, 1.0, 0.0);
+		
+		
 		++j;
 		i += 2;
 
 	}
 
+
+	printf("%d; %d\n", i, vertex_count);
+
+	//vertices[4] = vertex(-20, 300, 0, 0);
+	//vertices[3] = vertex(-50, 400, 0, 0);
+	//vertices[5] = vertex(-20, 500, 0, 0); 
+	vertices[vertex_count-2] = vertex(30000, 0, 0, 0);
 	vertices[vertex_count-1] = vertex(vertices[vertex_count-2].x+dx, half_WIN_H*samples[samplecount-1] + half_WIN_H, 1.0, 0.5);
 
 	return vertices;
@@ -505,9 +512,9 @@ GLuint *generateIndexBufferWithSharedVertices() {
 	// just use BUFSIZE_MAX :D
 	GLuint *indexBuffer = new GLuint[BUFSIZE_MAX];
 
-	indexBuffer[0] = 0;
+	indexBuffer[0] = 2;
 	indexBuffer[1] = 1;
-	indexBuffer[2] = 2;
+	indexBuffer[2] = 0;
 
 	int i = 3, j = 1;
 
@@ -527,6 +534,10 @@ GLuint *generateIndexBufferWithSharedVertices() {
 		j += 2;
 
 	}
+	indexBuffer[i] = j;
+	indexBuffer[i+1] = j+1;
+	indexBuffer[i+2] = j+2;
+
 	return indexBuffer;
 
 }
@@ -547,7 +558,7 @@ bool InitGL()
 	}
 
 	#endif
-
+	
 	glClearColor(1.0, 1.0, 1.0, 1.0);
 	glDisable(GL_DEPTH_TEST);
 
@@ -564,6 +575,12 @@ bool InitGL()
 	const char* version = (const char*) glGetString(GL_VERSION);
 
 	printf("\nOpenGL version information:\n%s\n\n", version);
+
+	GLint max_elements_vertices, max_elements_indices;
+	glGetIntegerv(GL_MAX_ELEMENTS_VERTICES, &max_elements_vertices);
+	glGetIntegerv(GL_MAX_ELEMENTS_INDICES, &max_elements_indices);
+
+	printf("GL_MAX_ELEMENTS_VERTICES = %d\nGL_MAX_ELEMENTS_INDICES = %d\n", max_elements_vertices, max_elements_indices);
 
 	bool gradient_texture_valid = gradient_texture.make_texture("textures/gradient.bmp", GL_LINEAR);	// solid_color_test.bmp
 	bool font_texture_valid = font_texture.make_texture("textures/dina_all.bmp", GL_NEAREST);
@@ -717,7 +734,7 @@ void drawWave() {
 
 #endif
 
-	wave_projection.make_proj_orthographic(-zoom*aspect_ratio, WIN_W+zoom*aspect_ratio, WIN_H+(zoom), -(zoom), -1.0f, 1.0f);
+	wave_projection.make_proj_orthographic(-View::zoom*aspect_ratio, WIN_W+View::zoom*aspect_ratio, WIN_H+(View::zoom), -(View::zoom), -1.0f, 1.0f);
 	wave_modelview.identity();
 	wave_modelview(3,0) = View::wave_position(0);
 	wave_modelview(3,1) = View::wave_position(1);
@@ -731,8 +748,17 @@ void drawWave() {
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
 #ifdef _WIN32
-	// consider glDrawRangeElements, it's just perfect for this application
-	glDrawElements(GL_TRIANGLES, BUFSIZE*2, GL_UNSIGNED_INT, NULL);
+
+	static const double spp = 1.0/dx;	// samples per pixel
+
+	int cur_offset = (int)(-8*View::wave_position(0))-6*View::zoom;
+	cur_offset = cur_offset < 0 ? NULL : cur_offset;
+	// the zoom variable grows when zooming out
+	// the current step was 1/4 (i.e. four samples per horizontal pixel),
+	// so 6 indices per triangle corresponds to 4*6*WIN_W indices per screen. (unzoomed, of course)
+	glDrawElements(GL_TRIANGLES, WIN_W*6*spp+12*spp*View::zoom, GL_UNSIGNED_INT, BUFFER_OFFSET(3*cur_offset*sizeof(GLuint)));
+	//glDrawElements(GL_TRIANGLES, BUFSIZE*6-12, GL_UNSIGNED_INT, NULL);
+	//glDrawRangeElements(GL_TRIANGLES, 57357, 60000, 100000, GL_UNSIGNED_INT, NULL);
 #elif __linux__
 	glDrawElements(GL_TRIANGLES, BUFSIZE*2, GL_UNSIGNED_SHORT, NULL);
 #endif
@@ -751,7 +777,7 @@ void drawWaveVertexArray() {
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
 
-	wave_projection.make_proj_orthographic(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), -1.0f, 1.0f);
+	wave_projection.make_proj_orthographic(-View::zoom, WIN_W+View::zoom, WIN_H+(View::zoom/aspect_ratio), -(View::zoom/aspect_ratio), -1.0f, 1.0f);
 	//wave_projection.make_proj_perspective(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), 1.0f, 100.0f);
 	
 	wave_modelview.identity();
@@ -909,8 +935,8 @@ inline void control() {
 			}
 			else {
 				// with the exp term, the sensitivity now scales with zoom level
-				View::wave_view_velocity(0) += (Ddx/dt)*exp(zoom/290.0);	
-				View::wave_view_velocity(1) += (Ddy/dt)*exp(zoom/290.0);
+				View::wave_view_velocity(0) += (Ddx/dt)*exp(View::zoom/290.0);	
+				View::wave_view_velocity(1) += (Ddy/dt)*exp(View::zoom/290.0);
 			}
 			// in an attempt to make the velocity vector more "sticky"
 			View::wave_view_velocity_sample1 = 0.5*(View::wave_view_velocity + View::wave_view_velocity_sample1);
@@ -1202,8 +1228,8 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				int fwKeys = GET_KEYSTATE_WPARAM(wParam);
 				int delta = GET_WHEEL_DELTA_WPARAM(wParam);
 				if (delta < 0) {
-					zoomOut();
-				} else if (delta > 0) { zoomIn(); }
+					View::zoomOut();
+				} else if (delta > 0) { View::zoomIn(); }
 
 				return 0;
 			}
@@ -1287,8 +1313,10 @@ void initializeStrings() {
 	const std::string bufinfostring = "Buffer size / # of samples: " + buffer_size;
 	strings.push_back(wpstring(bufinfostring, STRLEN_MAX, 15, WIN_H-20));
 
-	const std::string help("Press 'o' to open a new file.");
-	strings.push_back(wpstring(help, help.length(), WIN_W-220, 20));
+	const std::string help1("Press 'o' to open a new file.");
+	strings.push_back(wpstring(help1, help1.length(), WIN_W-220, 20));
+	const std::string help2("'p' for polygonmode toggle.");
+	strings.push_back(wpstring(help2, help2.length(), WIN_W-220, 35));
 }
 
 
@@ -1420,6 +1448,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 					//printf("%s\n", newfile.c_str());
 										
 					keys['o'] = false;
+				}
+
+				if (keys['p']) {
+
+					// kind of bad, since if done this way,
+					// the text will get globbered as well :D
+
+					if (polygonModeToggle) 
+						glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+					else { glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); }
+
+					polygonModeToggle = !polygonModeToggle;
+					keys['p'] = false;
+
 				}
 
 				control();
