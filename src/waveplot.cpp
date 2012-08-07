@@ -67,6 +67,16 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);	// declare wndproc
  *
  * */
 
+
+static const vertex fullscreen_quad_vertices[6] = { 
+				vertex(-1.0, -1.0, 0.0, 0.0),
+				vertex(1.0, -1.0, 1.0, 0.0),
+				vertex(1.0, 1.0, 1.0, 1.0),
+				vertex(-1.0, 1.0, 0.0, 1.0),
+				vertex(-1.0, -1.0, 0.0, 0.0),
+				vertex(1.0, 1.0, 1.0, 1.0)
+};
+
 static std::string input_filename("resources/asdfmono.wav");
 
 extern const vertex sliders[];
@@ -81,12 +91,17 @@ static texture gradient_texture, font_texture, slider_texture, solid_color_textu
 static std::vector<line> lines;
 static std::vector<wpstring> strings;
 
-static GLuint VertexShaderId, FragmentShaderId, programHandle, uniform_texture1_loc, uniform_projection_loc, uniform_modelview_loc;
-static bufferObject waveData, sliderData, waveVertexArray;
+static GLuint uniform_texture1_loc, uniform_projection_loc, uniform_modelview_loc;
+static GLuint uniform_texture1_loc_fullscreen_quad;
+static bufferObject waveData, sliderData, waveVertexArray, fullscreen_quadData;
 static mat4 wave_projection, wave_modelview;
 static int wave_polygonMode = GL_FILL;
 static bool wave_solidColorTextureToggle = false;
 static const double dx = 1.0/4.0;
+static const double frame_interval = 1.0/60.0;	// actually, handled by hardware vsync on my machine
+
+static ShaderProgram *passthrough_shader_program = NULL;
+static ShaderProgram *fullscreen_quad_shader = NULL;
 
 namespace Text {
 	mat4 projection_matrix;
@@ -124,9 +139,7 @@ void View::zoomOut() {
 	View::zoom = View::zoom >= View::zoom_max ? View::zoom_max : View::zoom + View::zoom_step;
 }
 
-
-static const double frame_interval = 1.0/60.0;	// actually, handled by hardware vsync on my machine
-
+static GLuint FBOid, FBOtextureid;	// for post-processing
 
 
 bool texture::make_texture(const char* filename, GLint filter_flag) {
@@ -417,8 +430,8 @@ vertex* bakeWaveVertexBufferUsingLineIntersections(const float* samples, const s
 		x3 = x2+dx;
 		y3 = half_WIN_H*samples[j] + half_WIN_H;
 
-		k1 = (y2-y1)/dx;	// dx = constant
-		//k1 = k2;
+		//k1 = (y2-y1)/dx;	// dx = constant
+		k1 = k2;
 		alpha_1 = alpha_2;	// can be copied from previous result
 							// also, this temporary isn't necessary
 	
@@ -560,7 +573,7 @@ bool InitGL()
 	glOrtho(0,WIN_W,WIN_H, 0,0.0f,1.0f);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();*/
-	//glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+	glViewport(0, 0, WIN_W, WIN_H);
 
 	const char* version = (const char*) glGetString(GL_VERSION);
 
@@ -591,44 +604,19 @@ bool InitGL()
 	const char* fshadername = "shaders/fragment.shader.linux";
 #endif
 
-	GLchar* vert_shader = readShaderFromFile(vshadername);
-	GLchar* frag_shader = readShaderFromFile(fshadername);
-
-	GLint vlen = strlen(vert_shader);
-	GLint flen = strlen(frag_shader);
-
-	VertexShaderId = glCreateShader(GL_VERTEX_SHADER);
-	FragmentShaderId = glCreateShader(GL_FRAGMENT_SHADER);
-
-	glShaderSource(VertexShaderId, 1, (const GLchar**)&vert_shader, &vlen);
-	glShaderSource(FragmentShaderId, 1, (const GLchar**)&frag_shader,&flen);
-
-	glCompileShader(VertexShaderId);
-	glCompileShader(FragmentShaderId);
-
-	if (!(checkShaderCompileStatus(FragmentShaderId) && checkShaderCompileStatus(VertexShaderId)))
-	{
-		printf("Shader compile error. See shader.log\n");
+	passthrough_shader_program = new ShaderProgram("shaders/vertex.shader.win", "shaders/fragment.shader.win", "");
+	fullscreen_quad_shader = new ShaderProgram("shaders/quad_passthrough.shader.win", "shaders/quad_fragment.shader.win", "");
+	
+	if (!passthrough_shader_program->valid()) {
+		delete passthrough_shader_program;
+		return false;
+	}
+	if (!fullscreen_quad_shader->valid()) {
+		delete fullscreen_quad_shader;
 		return false;
 	}
 
-	programHandle = glCreateProgram();
-
-	glAttachShader(programHandle, VertexShaderId);
-	glAttachShader(programHandle, FragmentShaderId);
-
-	glLinkProgram(programHandle);
-	
-	if (checkProgramLinkStatus(programHandle) == FALSE){
-		printf("Shader LINK error.\n");
-		return false;
-	}
-	
-	glUseProgram(programHandle);
-
-
-	delete [] vert_shader;
-	delete [] frag_shader;
+	glUseProgram(passthrough_shader_program->programHandle());
 
 	Text::projection_matrix.make_proj_orthographic(0.0, WIN_W, WIN_H, 0.0, -1.0, 1.0);
 	Text::modelview_matrix.identity();
@@ -636,9 +624,13 @@ bool InitGL()
 
 #ifdef _WIN32
 
-	glBindAttribLocation(programHandle, 0, "in_position");
-	glBindAttribLocation(programHandle, 1, "in_texcoord");
-	glBindFragDataLocation(programHandle, 0, "out_fragcolor");
+	glBindAttribLocation(passthrough_shader_program->programHandle(), 0, "in_position");
+	glBindAttribLocation(passthrough_shader_program->programHandle(), 1, "in_texcoord");
+	glBindFragDataLocation(passthrough_shader_program->programHandle(), 0, "out_fragcolor");
+
+	glBindAttribLocation(fullscreen_quad_shader->programHandle(), 0, "in_position");
+	glBindAttribLocation(fullscreen_quad_shader->programHandle(), 1, "in_texcoord");
+	glBindFragDataLocation(fullscreen_quad_shader->programHandle(), 0, "out_fragcolor");
 
 	glEnableVertexAttribArray(0);
 	glEnableVertexAttribArray(1);
@@ -646,11 +638,14 @@ bool InitGL()
 
 #endif
 	
-	uniform_texture1_loc = glGetUniformLocation(programHandle, "texture_1");
+	uniform_texture1_loc = glGetUniformLocation(passthrough_shader_program->programHandle(), "texture_1");
+	uniform_texture1_loc_fullscreen_quad = glGetUniformLocation(fullscreen_quad_shader->programHandle(), "texture_1");
+
+	uniform_projection_loc = glGetUniformLocation(passthrough_shader_program->programHandle(), "projectionMatrix");
+	uniform_modelview_loc = glGetUniformLocation(passthrough_shader_program->programHandle(), "modelviewMatrix");
 	
-	uniform_projection_loc = glGetUniformLocation(programHandle, "projectionMatrix");
-	uniform_modelview_loc = glGetUniformLocation(programHandle, "modelviewMatrix");
-	
+	printf("%d\n", uniform_texture1_loc_fullscreen_quad);
+
 	err = glGetError();
 
 	if (err != GL_NO_ERROR) {
@@ -668,7 +663,33 @@ bool InitGL()
 
 	// in terms of smoothness, hardware "Always on" VSYNC yields the best results (at least for me, Radeon HD 5770)
 
-	printf("%d %d %d\n", uniform_texture1_loc, uniform_projection_loc, uniform_modelview_loc);
+	glGenFramebuffers(1, &FBOid);
+	glBindFramebuffer(GL_FRAMEBUFFER, FBOid);
+//
+	glGenTextures(1, &FBOtextureid);
+	glBindTexture(GL_TEXTURE_2D, FBOtextureid);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIN_W, WIN_H, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+	
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+	glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, FBOtextureid, 0);
+
+	GLenum m[2] = { GL_COLOR_ATTACHMENT0 };
+	glDrawBuffers(1, m);
+
+	if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+
+		MessageBox(hWnd, "FBO initialization failed!", "error", NULL);
+		return false;
+	}
+	
+	glBindFramebuffer(GL_FRAMEBUFFER, FBOid);
+
+	glGenBuffers(1, &fullscreen_quadData.VBOid);
+	glBindBuffer(GL_ARRAY_BUFFER, fullscreen_quadData.VBOid);
+	glBufferData(GL_ARRAY_BUFFER, 6*sizeof(vertex), fullscreen_quad_vertices, GL_STATIC_DRAW);
 
 	return true;
 }
@@ -700,7 +721,7 @@ void drawSliders() {
 	glLoadIdentity(); */
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sliderData.IBOid);
-	glUseProgram(programHandle);
+	glUseProgram(passthrough_shader_program->programHandle());
 
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, slider_texture.textureId);
@@ -710,7 +731,7 @@ void drawSliders() {
 }
 
 void drawWave() {
-
+	
 	glPolygonMode(GL_FRONT_AND_BACK, wave_polygonMode);
 	glBindBuffer(GL_ARRAY_BUFFER, waveData.VBOid);
 
@@ -730,7 +751,7 @@ void drawWave() {
 	wave_modelview.identity();
 	wave_modelview(3,0) = View::wave_position(0);
 	wave_modelview(3,1) = View::wave_position(1);
-	glUseProgram(programHandle);
+	glUseProgram(passthrough_shader_program->programHandle());
 	glUniform1i(uniform_texture1_loc, 0);
 	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)wave_projection.rawdata());
 	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)wave_modelview.rawdata());
@@ -769,6 +790,26 @@ void drawWave() {
 	
 }
 
+void drawFullScreenQuad() {
+	
+	glBindBuffer(GL_ARRAY_BUFFER, fullscreen_quadData.VBOid);
+	
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
+
+	glUseProgram(fullscreen_quad_shader->programHandle());
+	glUniform1i(uniform_texture1_loc_fullscreen_quad, 0);
+	
+	glUseProgram(fullscreen_quad_shader->programHandle());
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, FBOtextureid);
+	glDrawArrays(GL_TRIANGLES, 0, 6);
+
+	glUseProgram(0);
+
+}
+
 
 void drawWaveVertexArray() {
 
@@ -787,7 +828,7 @@ void drawWaveVertexArray() {
 	wave_modelview(3,0) = View::wave_position(0);
 	wave_modelview(3,1) = View::wave_position(1);
 
-	glUseProgram(programHandle);
+	glUseProgram(passthrough_shader_program->programHandle());
 	glUniform1i(uniform_texture1_loc, 0);
 	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)wave_projection.rawdata());
 	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)wave_modelview.rawdata());
@@ -852,7 +893,7 @@ void drawText() {
 		glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
 #endif
 	
-		glUseProgram(programHandle);
+		glUseProgram(passthrough_shader_program->programHandle());
 		glUniform1i(uniform_texture1_loc, 0);
 		
 		glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)Text::projection_matrix.rawdata());
@@ -902,8 +943,21 @@ bool readWAVFile(const std::string& filename) {
 	// for a 110MB stereo WAV file, it takes ~ 18ms for the stereo->mono
 	// downmixing, 20 ms for file I/O, ~32ms for short -> float
 	// conversion with scaling, and another whopping 2532ms for bake.
-	// Parallelize loop perhaps?
+	
+	// A solution would be to create an initial vertex buffer object
+	// that only includes the first ~four screenfuls of samples,
+	// meanwhile creating the final, complete buffer.
+	
+	Timer::init();
+	Timer::start();
 	vertex* vertices = bakeWaveVertexBufferUsingLineIntersections(samples, BUFSIZE);
+	
+	delete [] samples;
+
+	double bake_t = Timer::getMilliSeconds();
+	
+	printf("Baking took %f ms.\n", bake_t);
+	
 	waveData.VBOid = generateWaveVertexBufferObject(vertices);	
 	
 	delete [] vertices;
@@ -963,10 +1017,14 @@ inline void control() {
 inline void draw() {
 
 	glClear(GL_COLOR_BUFFER_BIT);
-
+	
+	glBindFramebuffer(GL_FRAMEBUFFER, FBOid);
 	drawWave();
 	//drawWaveVertexArray();
 	drawText();
+	
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	drawFullScreenQuad();
 	//drawSliders();
 		
 }
@@ -1027,7 +1085,7 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 	fullscreen = fullscreenflag;
 
 	hInstance = GetModuleHandle(NULL);
-	wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+	wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC ;
 	wc.lpfnWndProc = (WNDPROC) WndProc;
 	wc.cbClsExtra = 0;
 	wc.cbWndExtra = 0;
@@ -1078,7 +1136,9 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 
 	else {
 		dwExStyle=WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
-		dwStyle=WS_OVERLAPPEDWINDOW;
+		//dwStyle=WS_OVERLAPPEDWINDOW;
+		dwStyle=(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+		// creates a non-resizable window
 	}
 
 	AdjustWindowRectEx(&WindowRect, dwStyle, FALSE, dwExStyle);

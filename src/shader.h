@@ -4,10 +4,29 @@
 #include "gl_includes.h"
 
 #include <fstream>
+#include <sstream>
 #include "utils.h"
 
-GLchar* readShaderFromFile(const char* filename);
-GLint checkShaderCompileStatus(GLuint shaderId);
-GLint checkProgramLinkStatus(GLuint programHandle);
+namespace Shader {
+	
+	static GLint checkShaderCompileStatus(GLuint shaderId);
+	static const std::string logfilename("shader.log");
+
+};
+
+class ShaderProgram { 
+
+	GLuint programHandle_;
+	bool error;
+
+public:
+	
+	GLint checkLinkStatus();
+	ShaderProgram(const std::string& vs_filename, const std::string& fs_filename, const std::string &gs_filename);
+
+	bool valid() const;
+
+	GLuint programHandle() const { return programHandle_; }
+};
 
 #endif
