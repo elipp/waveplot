@@ -57,7 +57,7 @@ vec4 operator*(const float& scalar, vec4& v);	// convenience overload :P
 
 // NOTE: the dot function doesn't perform an actual dot product computation of two R^4 vectors,
 // as the type of the arguments misleadingly suggests. Instead it computes a truncated dot product,
-// including only the first 3 components (i.e. x,y,z)
+// including only the first 3 components (i.e. x,y,z).
 
 float dot(const vec4 &a, const vec4 &b);
 // dot benchmarks for 100000000 iterations:

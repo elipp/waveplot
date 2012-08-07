@@ -5,7 +5,8 @@ waveplot:
 	
 	Features:
 		- a highly tuned collection of linear algebra-related functions
-		  using MSVC intrinsics (relies heavily on the SSE4 instruction DPPS, or _mm_dp_ps())
+		  using MSVC intrinsics (relies heavily on the SSE4 instruction
+		  DPPS, or _mm_dp_ps())
 		- "inertial" mouse navigation, heads-up display
 	
 	Currently, only the Windows version compiles and works. 

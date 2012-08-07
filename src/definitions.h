@@ -28,6 +28,7 @@ static const unsigned int BUFSIZE = 10000;
 #endif
 
 static const double aspect_ratio = double(WIN_W)/double(WIN_H);
+static const double aspect_ratio_recip = double(WIN_H)/double(WIN_W);
 
 
 struct WAVHEADERINFO {

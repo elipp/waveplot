@@ -76,7 +76,7 @@ static float half_WIN_H = (float) WIN_H / 2.0;
 static float linewidth = 1.8; 
 static float half_linewidth = linewidth/2.0;
 
-static texture gradient_texture, font_texture, slider_texture;
+static texture gradient_texture, font_texture, slider_texture, solid_color_texture;
 
 static std::vector<line> lines;
 static std::vector<wpstring> strings;
@@ -84,7 +84,8 @@ static std::vector<wpstring> strings;
 static GLuint VertexShaderId, FragmentShaderId, programHandle, uniform_texture1_loc, uniform_projection_loc, uniform_modelview_loc;
 static bufferObject waveData, sliderData, waveVertexArray;
 static mat4 wave_projection, wave_modelview;
-static bool polygonModeToggle = true;
+static int wave_polygonMode = GL_FILL;
+static bool wave_solidColorTextureToggle = false;
 static const double dx = 1.0/4.0;
 
 namespace Text {
@@ -390,20 +391,14 @@ vertex* bakeWaveVertexBufferUsingLineIntersections(const float* samples, const s
 	float k2 = (y3-y2)/dx;
 	float alpha_2 = atan(k2);
 
-	float px_2 = h*sin(alpha_1);
-	float py_2 = h*cos(alpha_1);
-	
-	vertices[0] = vertex(x2-px_2, WIN_H - (y2+py_2), 1.0, 0.0);
-	vertices[1] = vertex(x2+px_2, WIN_H - (y2-py_2), 1.0, 1.0);
-	vertices[2] = vertex(x1, y1, 0.0, 0.5);
-	//vertices[0] = vertex(-50, 400, 0, 0);
-	//vertices[1] = vertex(-50, 400, 0, 0);
-	//vertices[2] = vertex(-50, 400, 0, 0);
-	
-	printf("%f %f\n", vertices[0].x, vertices[0].y);
-	printf("%f %f\n", vertices[1].x, vertices[1].y);
-	printf("%f %f\n", vertices[2].x, vertices[2].y);
-	
+	float px_2 = h*sin(alpha_2);
+	float py_2 = h*cos(alpha_2);
+
+	// special case
+	vertices[0] = vertex(x1, WIN_H - y1, 0.0, 0.5);
+	vertices[2] = vertex(x2+px_2, WIN_H - (y2-py_2), 0.0, 0.0);
+	vertices[1] = vertex(x2-px_2, WIN_H - (y2+py_2), 0.0, 1.0);
+		
 	int i = 3, j = 3;
 	
 	float alpha_3 = atan(((half_WIN_H*samples[3] + half_WIN_H)-y3)/dx);
@@ -492,13 +487,7 @@ vertex* bakeWaveVertexBufferUsingLineIntersections(const float* samples, const s
 		i += 2;
 
 	}
-
-
-	printf("%d; %d\n", i, vertex_count);
-
-	//vertices[4] = vertex(-20, 300, 0, 0);
-	//vertices[3] = vertex(-50, 400, 0, 0);
-	//vertices[5] = vertex(-20, 500, 0, 0); 
+	// these are still bugged
 	vertices[vertex_count-2] = vertex(30000, 0, 0, 0);
 	vertices[vertex_count-1] = vertex(vertices[vertex_count-2].x+dx, half_WIN_H*samples[samplecount-1] + half_WIN_H, 1.0, 0.5);
 
@@ -512,9 +501,9 @@ GLuint *generateIndexBufferWithSharedVertices() {
 	// just use BUFSIZE_MAX :D
 	GLuint *indexBuffer = new GLuint[BUFSIZE_MAX];
 
-	indexBuffer[0] = 2;
-	indexBuffer[1] = 1;
-	indexBuffer[2] = 0;
+	indexBuffer[0] = 0;
+	indexBuffer[1] = 2;
+	indexBuffer[2] = 1;
 
 	int i = 3, j = 1;
 
@@ -534,6 +523,7 @@ GLuint *generateIndexBufferWithSharedVertices() {
 		j += 2;
 
 	}
+	// this is probably wrong
 	indexBuffer[i] = j;
 	indexBuffer[i+1] = j+1;
 	indexBuffer[i+2] = j+2;
@@ -585,8 +575,9 @@ bool InitGL()
 	bool gradient_texture_valid = gradient_texture.make_texture("textures/gradient.bmp", GL_LINEAR);	// solid_color_test.bmp
 	bool font_texture_valid = font_texture.make_texture("textures/dina_all.bmp", GL_NEAREST);
 	bool slider_texture_valid = slider_texture.make_texture("textures/slider.bmp", GL_NEAREST);
+	bool solid_color_texture_valid = solid_color_texture.make_texture("textures/solid_color_test.bmp", GL_LINEAR);
 
-	if (!(gradient_texture_valid && font_texture_valid && slider_texture_valid)) {
+	if (!(gradient_texture_valid && font_texture_valid && slider_texture_valid && solid_color_texture_valid)) {
 		printf("Failure loading textures.");
 		return false;
 	}
@@ -720,6 +711,7 @@ void drawSliders() {
 
 void drawWave() {
 
+	glPolygonMode(GL_FRONT_AND_BACK, wave_polygonMode);
 	glBindBuffer(GL_ARRAY_BUFFER, waveData.VBOid);
 
 #ifdef _WIN32
@@ -734,7 +726,7 @@ void drawWave() {
 
 #endif
 
-	wave_projection.make_proj_orthographic(-View::zoom*aspect_ratio, WIN_W+View::zoom*aspect_ratio, WIN_H+(View::zoom), -(View::zoom), -1.0f, 1.0f);
+	wave_projection.make_proj_orthographic(-View::zoom, WIN_W+View::zoom, WIN_H+(View::zoom*aspect_ratio_recip), -(View::zoom*aspect_ratio_recip), -1.0f, 1.0f);
 	wave_modelview.identity();
 	wave_modelview(3,0) = View::wave_position(0);
 	wave_modelview(3,1) = View::wave_position(1);
@@ -746,19 +738,29 @@ void drawWave() {
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, waveData.IBOid);
 
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
+	
+	if (wave_solidColorTextureToggle) {
+		glBindTexture(GL_TEXTURE_2D, solid_color_texture.textureId);
+	} else {		
+		glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
+	}
 #ifdef _WIN32
 
-	static const double spp = 1.0/dx;	// samples per pixel
+	static const int spp = 1.0/dx;	// samples per pixel
 
-	int cur_offset = (int)(-8*View::wave_position(0))-6*View::zoom;
-	cur_offset = cur_offset < 0 ? NULL : cur_offset;
 	// the zoom variable grows when zooming out
 	// the current step was 1/4 (i.e. four samples per horizontal pixel),
 	// so 6 indices per triangle corresponds to 4*6*WIN_W indices per screen. (unzoomed, of course)
-	glDrawElements(GL_TRIANGLES, WIN_W*6*spp+12*spp*View::zoom, GL_UNSIGNED_INT, BUFFER_OFFSET(3*cur_offset*sizeof(GLuint)));
-	//glDrawElements(GL_TRIANGLES, BUFSIZE*6-12, GL_UNSIGNED_INT, NULL);
-	//glDrawRangeElements(GL_TRIANGLES, 57357, 60000, 100000, GL_UNSIGNED_INT, NULL);
+
+	const int samples_shown = (WIN_W + 2*View::zoom)*spp;
+	int actual_offset = -(int)(View::wave_position(0)) - (int)View::zoom;
+	if (actual_offset < 0) actual_offset = 0;
+	if (actual_offset > BUFSIZE - samples_shown) actual_offset = BUFSIZE - samples_shown;
+
+	// when pos < 0, the program still renders samples_shown 
+	// samples even though they're out of the field of view.
+	
+	glDrawElements(GL_TRIANGLES, 6*samples_shown, GL_UNSIGNED_INT, BUFFER_OFFSET(6*spp*(actual_offset)*sizeof(GLuint)));
 #elif __linux__
 	glDrawElements(GL_TRIANGLES, BUFSIZE*2, GL_UNSIGNED_SHORT, NULL);
 #endif
@@ -830,6 +832,8 @@ void drawWaveVertexArray() {
 
 void drawText() {
 	
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
 	static std::vector<wpstring>::const_iterator iter;
 
 	// damn static variables. ;-)
@@ -911,7 +915,7 @@ bool readWAVFile(const std::string& filename) {
 inline void control() {
 	
 	// arbitrary timestep
-	static const float dt = 0.8;
+	static const float dt = 0.5;
 
 	if (View::mbuttondown) {
 			View::prev_dx = View::dx;
@@ -1198,7 +1202,19 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 
 	switch(uMsg)
-	{
+	{		
+
+		// actually, the order seems to matter quite a bit
+		case WM_LBUTTONUP:
+			{
+				ClipCursor(NULL);
+
+				ShowCursor(TRUE);	// for some very odd reason, two calls are needed to
+				ShowCursor(TRUE);	// accomplish the task :D
+
+				View::mbuttondown=false;
+				return 0;
+			}
 		case WM_LBUTTONDOWN:
 			{
 				GetWindowRect(hWnd, &View::windowRect);
@@ -1210,19 +1226,9 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				
 				ShowCursor(FALSE);
 				ShowCursor(FALSE);
-				
 				return 0;
 			}
-		case WM_LBUTTONUP:
-			{
-				ClipCursor(NULL);
 
-				ShowCursor(TRUE);	// for some very odd reason, two calls are needed to
-				ShowCursor(TRUE);	// accomplish the task :D
-
-				View::mbuttondown=false;
-				return 0;
-			}
 		case WM_MOUSEWHEEL:
 			{
 				int fwKeys = GET_KEYSTATE_WPARAM(wParam);
@@ -1317,6 +1323,8 @@ void initializeStrings() {
 	strings.push_back(wpstring(help1, help1.length(), WIN_W-220, 20));
 	const std::string help2("'p' for polygonmode toggle.");
 	strings.push_back(wpstring(help2, help2.length(), WIN_W-220, 35));
+	const std::string help3("'t' for texture toggle.");
+	strings.push_back(wpstring(help3, help3.length(), WIN_W-220, 50));
 }
 
 
@@ -1382,6 +1390,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	WaitForSingleObject(handle, INFINITE);
 
 	waveData.IBOid = generateGlobalIndexBuffer(indices);
+	
 	delete [] indices;
 
 	Timer::init();
@@ -1454,14 +1463,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 					// kind of bad, since if done this way,
 					// the text will get globbered as well :D
+					if (wave_polygonMode == GL_LINE) {
+						wave_polygonMode = GL_FILL;
+					}
+					else { wave_polygonMode = GL_LINE; }
 
-					if (polygonModeToggle) 
-						glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-					else { glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); }
-
-					polygonModeToggle = !polygonModeToggle;
 					keys['p'] = false;
 
+				}
+
+				if (keys['t']) {
+
+					wave_solidColorTextureToggle = !wave_solidColorTextureToggle;
+					keys['t'] = false;
 				}
 
 				control();
