@@ -1015,10 +1015,10 @@ inline void control() {
 }
 
 inline void draw() {
-
-	glClear(GL_COLOR_BUFFER_BIT);
 	
 	glBindFramebuffer(GL_FRAMEBUFFER, FBOid);
+	glClear(GL_COLOR_BUFFER_BIT);
+	
 	drawWave();
 	//drawWaveVertexArray();
 	drawText();

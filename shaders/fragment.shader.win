@@ -1,5 +1,6 @@
-#version 330 compatibility
+#version 330
 
+in vec2 vpos;
 in vec2 vtexcoord;
 
 uniform sampler2D texture_1;
@@ -13,3 +14,5 @@ void main(void) {
 	out_fragcolor = vec4(0.0, 0.0, 0.0, col.g);
 
 }
+
+

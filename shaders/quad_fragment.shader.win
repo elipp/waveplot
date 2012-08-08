@@ -1,0 +1,25 @@
+#version 330
+
+in vec2 vpos;
+in vec2 vtexcoord;
+
+uniform sampler2D texture_1;
+
+//const float blurSize = 1/1024.0;
+
+layout(location = 0) out vec4 out_fragcolor;
+
+void main(void) {
+
+	// amplify black values
+	//vec4 col = texture2D(texture_1, vtexcoord);
+
+   vec4 col = texture2D(texture_1, vtexcoord);
+   out_fragcolor = col;
+  // vec4 sum = vec4(0.0);
+ //if (col.r > 0.9) {
+	//out_fragcolor = col;
+	//}
+	//else { out_fragcolor = vec4(0.0); }
+
+}
