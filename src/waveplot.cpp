@@ -768,14 +768,14 @@ void drawWave() {
 
 	static const int spp = 1.0/dx;	// samples per pixel
 
-	// the zoom variable grows when zooming out
-	// the current step was 1/4 (i.e. four samples per horizontal pixel),
-	// so 6 indices per triangle corresponds to 4*6*WIN_W indices per screen. (unzoomed, of course)
-
-	const int samples_shown = (WIN_W + 2*View::zoom)*spp;
+	int samples_shown = (WIN_W + 2*View::zoom)*spp;
 	int actual_offset = -(int)(View::wave_position(0)) - (int)View::zoom;
 	if (actual_offset < 0) actual_offset = 0;
-	if (actual_offset > BUFSIZE - samples_shown) actual_offset = BUFSIZE - samples_shown;
+	if (actual_offset*dx + samples_shown > BUFSIZE) {
+		samples_shown -= spp*actual_offset + samples_shown - BUFSIZE + 4;	// the 4 is just an arbitrary constant
+		if (samples_shown < 0) samples_shown = 0;							// to "complement" known bakeWaveVertexBuffer...()
+	}																		// end irregularities 
+																			// (i.e. conceal the manifestation of a bug. :P)
 
 	// when pos < 0, the program still renders samples_shown 
 	// samples even though they're out of the field of view.
