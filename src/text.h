@@ -5,25 +5,61 @@
 
 #include <string>
 #include <cstring>
+#include <vector>
+#include <process.h>
 
 #include "definitions.h"
 #include "precalculated_texcoords.h"
 #include "lin_alg.h"
 
-struct wpstring { 
 
-	std::string text;
-	const std::size_t length;	// not really needed
-	int x, y;
-	bufferObject bufObj;
-	wpstring(const std::string &text, const std::size_t& len_max, GLuint x, GLuint y);
-	void updateString(const std::string &newtext);
-	glyph* generateGlyphs();
-	bufferObject generateTextObject();
+class wpstring_holder;
+
+static const std::size_t wpstring_max_length = 64;
+void generateTextCommonIndices(void *arg);	// for crt threads
+
+static const GLuint WPS_DYNAMIC = 0x0, WPS_STATIC = 0x01;
+
+class wpstring {
+
+	friend class wpstring_holder;
+
+	char text[wpstring_max_length];
+	std::size_t actual_size;
+public:
+	const int x, y;
+	wpstring(const std::string &text_, GLuint x_, GLuint y_);
+
+	bool visible;
+	void updateString(const std::string& newtext, int index);
+	std::size_t getRealSize() const { return actual_size; }
+};
+
+
+class wpstring_holder { 
+
+	static GLuint static_VBOid;
+	static GLuint dynamic_VBOid;
+	static GLuint shared_IBOid;
+	static std::size_t static_strings_total_length;
+	// some kind of size hinting (reserve) could be done
+	static std::vector<wpstring> static_strings;
+	static std::vector<wpstring> dynamic_strings;
+
+public:
+	static GLuint get_static_VBOid() { return static_VBOid; }
+	static GLuint get_dynamic_VBOid() { return dynamic_VBOid; }
+	static GLuint get_IBOid() { return shared_IBOid; }
+	static void updateDynamicString(int index, const std::string& newtext);
+	static void append(const wpstring& string, const GLuint static_mask);
+	static void createBufferObjects();
+	static std::size_t get_static_strings_total_length() { return static_strings_total_length; }
+	static std::size_t getStaticStringCount() { return static_strings.size(); }
+	static std::size_t getDynamicStringCount() { return dynamic_strings.size(); }
+	static std::string getDynamicString(int index);
 
 };
 
-static inline GLuint texcoord_index_from_char(char a){ return (GLuint)a - 0x20; }
 
 
 

@@ -1,85 +1,88 @@
 #include "text.h"
+#define SCL_SECURE_NO_WARNINGS	// gets rid of annoying copy warning :P
+static inline GLuint texcoord_index_from_char(char a){ return (GLuint)a - 0x20; }
 
-wpstring::wpstring(const std::string& text, const std::size_t& len_max, GLuint x, GLuint y)  : length(len_max) {
+static const std::size_t common_indices_count = ((0x1<<16)/6)*6;
 
-	this->x = x;
-	this->y = y;
-	const std::size_t len = text.length();
-	const std::size_t diff = len_max - len;
-	std::string newcopy;
-	newcopy = text;
-	newcopy.append(diff, 0x20);	// this will give the whitespace character when passed though texcoord_index_from_char
-	this->text = newcopy;
-	bufObj = generateTextObject();
+
+GLuint wpstring_holder::static_VBOid = 0;
+GLuint wpstring_holder::dynamic_VBOid = 0;
+GLuint wpstring_holder::shared_IBOid = 0;
+std::size_t wpstring_holder::static_strings_total_length = 0;
+
+std::vector<wpstring> wpstring_holder::static_strings;
+std::vector<wpstring> wpstring_holder::dynamic_strings;
+
+wpstring::wpstring(const std::string &text_, GLuint x_, GLuint y_) : x(x_), y(y_) {
+
+	const std::size_t arg_str_len = text_.length();
+	
+	if (arg_str_len > wpstring_max_length) {
+		printf("text: warning: string length exceeds %d, truncating.\nstring: \"%s\"\n", wpstring_max_length, text_.c_str());
+		text_.copy(text, wpstring_max_length, 0);
+		text[wpstring_max_length-1] = '\0';
+		actual_size = wpstring_max_length;
+
+	}
+	else {
+		const std::size_t diff = wpstring_max_length - arg_str_len;
+		text_.copy(text, arg_str_len, 0);
+		memset(text+arg_str_len, 0x20, diff);		// likely to segfault :P
+		text[wpstring_max_length-1] = '\0';	// not really needed though
+		actual_size = arg_str_len;
+	}
+
+	visible = true;
 }
 
 
-void wpstring::updateString(const std::string &newtext) {
-	
-	const std::size_t new_len = newtext.length();
-	if (new_len > length) {	
-		const std::string newsub = newtext.substr(0, length);
-		this->text = newsub;
-	}
-	else if (new_len <= length) {
-		const std::size_t diff = length - new_len;
-		std::string newcopy = newtext;
-		newcopy.append(diff, 0x20);
-		this->text = newcopy;
-	}
-	
-	glyph *newglyphs = generateGlyphs();	
-	glBindBuffer(GL_ARRAY_BUFFER, bufObj.VBOid);
-	glBufferData(GL_ARRAY_BUFFER, length*sizeof(glyph), newglyphs, GL_STATIC_DRAW);
 
-	delete [] newglyphs;
-}
 
-glyph* wpstring::generateGlyphs() {
+void wpstring::updateString(const std::string &newtext, int index) {
 	
-	glyph *glyphs = new glyph[length];
+	const std::size_t arg_str_len = newtext.length();
+	if (arg_str_len > wpstring_max_length) {	
+		const std::string newsub = newtext.substr(0, wpstring_max_length);
+		newsub.copy(text, wpstring_max_length, 0);
+	}
+	else {
+		const std::size_t diff = wpstring_max_length - arg_str_len;
+		newtext.copy(text, arg_str_len, 0);
+		memset(text+arg_str_len, 0x20, diff);	// segfault :D
+	}
+	
+	glyph glyphs[wpstring_max_length];
 
 	float a;
-	
-	unsigned int i = 0,j = 0;
 
-	for (; i < length; i++) {
+	int i=0, j=0;
+
+	for (i=0; i < wpstring_max_length; i++) {
 		a = i * 7.0;	// the distance between two consecutive letters.
 		for (j=0; j < 4; j++) {
-			
-			glyphs[i].vertices[j].x = x + a +((j>>1)&1)*6.0;
-			glyphs[i].vertices[j].y = y + (((j+1)>>1)&1)*12.0;
-			glyphs[i].vertices[j].u = glyph_texcoords[texcoord_index_from_char(text[i])][2*j];
-			glyphs[i].vertices[j].v = glyph_texcoords[texcoord_index_from_char(text[i])][2*j+1];
+				glyphs[i].vertices[j].x = x + a +((j>>1)&1)*6.0;
+				glyphs[i].vertices[j].y = y + (((j+1)>>1)&1)*12.0;
+				glyphs[i].vertices[j].u = glyph_texcoords[texcoord_index_from_char(text[i])][2*j];
+				glyphs[i].vertices[j].v = glyph_texcoords[texcoord_index_from_char(text[i])][2*j+1];
+			}
 		}
-	}
-	return glyphs;
+
+
+	glBindBuffer(GL_ARRAY_BUFFER, wpstring_holder::get_dynamic_VBOid());
+	glBufferSubData(GL_ARRAY_BUFFER, index*wpstring_max_length*sizeof(glyph), wpstring_max_length*sizeof(glyph), (const GLvoid*)glyphs);
 
 }
 
-bufferObject wpstring::generateTextObject() {
+
+// for crt threads
+void generateTextCommonIndices(void *arg) {
 	
-	const std::size_t str_len = text.length();
-	glyph *glyphs = generateGlyphs();
-	bufferObject textBufObj;
-	glGenBuffers(1, &textBufObj.VBOid);
-	glBindBuffer(GL_ARRAY_BUFFER, textBufObj.VBOid);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(glyph) * str_len, (const GLvoid*)glyphs, GL_STATIC_DRAW); 
-
-	delete [] glyphs;
-
-	// generate index buffer object
-
-	glGenBuffers(1, &textBufObj.IBOid);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, textBufObj.IBOid);
+	GLushort **p = (GLushort**)arg;
+	GLushort *indices = *p;
 
 	unsigned int i = 0;
 	unsigned int j = 0;
-	
-	// I really doubt any strings of length 10922 or more will ever be provided, so GLushort it is. 
-	GLushort *indices = new GLushort[(6*str_len)];	// three indices per triangle, two triangles per line, BUFSIZE lines
-
-	while (i < 6 * str_len) {
+	while (i < common_indices_count) {
 
 		indices[i] = j;
 		indices[i+1] = j+1;
@@ -90,13 +93,110 @@ bufferObject wpstring::generateTextObject() {
 
 		i += 6;
 		j += 4;
-
-
 	}
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*str_len*sizeof(GLushort), (const GLvoid*)indices, GL_STATIC_DRAW);
 
+	_endthread();
 
-	return textBufObj;
 }
 
+void wpstring_holder::updateDynamicString(int index, const std::string& newtext) {
+	dynamic_strings[index].updateString(newtext, index);
+}
+
+
+void wpstring_holder::append(const wpstring& str, GLuint static_mask) {
+	if (static_mask) {
+		static_strings.push_back(str);
+		static_strings_total_length += str.getRealSize();
+	}
+	else {
+		dynamic_strings.push_back(str);
+	}
+}
+
+
+void wpstring_holder::createBufferObjects() {
+
+	GLushort *text_common_indices = new GLushort[common_indices_count];
+	HANDLE handle;
+	handle = (HANDLE)_beginthread(generateTextCommonIndices, 0, &text_common_indices);
+
+	glGenBuffers(1, &static_VBOid);
+	glBindBuffer(GL_ARRAY_BUFFER, static_VBOid);
+
+	glyph *glyphs = new glyph[static_strings_total_length];
+
+	float a;
+	
+	unsigned int i = 0,j = 0, g = 0;
+	
+	std::vector<wpstring>::iterator static_iter = static_strings.begin();
+	
+	while(static_iter != static_strings.end()) {
+		std::size_t current_string_length = static_iter->getRealSize();
+		for (i=0; i < current_string_length; i++) {
+			a = i * 7.0;	// the distance between two consecutive letters.
+			for (j=0; j < 4; j++) {
+			
+				glyphs[g].vertices[j].x = static_iter->x + a +((j>>1)&1)*6.0;
+				glyphs[g].vertices[j].y = static_iter->y + (((j+1)>>1)&1)*12.0;
+				glyphs[g].vertices[j].u = glyph_texcoords[texcoord_index_from_char(static_iter->text[i])][2*j];
+				glyphs[g].vertices[j].v = glyph_texcoords[texcoord_index_from_char(static_iter->text[i])][2*j+1];
+
+			}
+			++g;
+		}
+		++static_iter;
+	}
+
+	glBufferData(GL_ARRAY_BUFFER, sizeof(glyph) * static_strings_total_length, (const GLvoid*)glyphs, GL_STATIC_DRAW); 
+
+	delete [] glyphs;
+
+	glGenBuffers(1, &dynamic_VBOid);
+	glBindBuffer(GL_ARRAY_BUFFER, dynamic_VBOid);
+
+	glyphs = new glyph[wpstring_max_length*dynamic_strings.size()];
+	
+	i = 0,j = 0, g = 0;
+
+	std::vector<wpstring>::iterator dynamic_iter = dynamic_strings.begin();
+
+	while(dynamic_iter != dynamic_strings.end()) {
+
+		for (i=0; i < wpstring_max_length; i++) {
+			a = i * 7.0;	// the distance between two consecutive letters.
+			for (j=0; j < 4; j++) {
+			
+				glyphs[g].vertices[j].x = dynamic_iter->x + a +((j>>1)&1)*6.0;
+				glyphs[g].vertices[j].y = dynamic_iter->y + (((j+1)>>1)&1)*12.0;
+				glyphs[g].vertices[j].u = glyph_texcoords[texcoord_index_from_char(dynamic_iter->text[i])][2*j];
+				glyphs[g].vertices[j].v = glyph_texcoords[texcoord_index_from_char(dynamic_iter->text[i])][2*j+1];
+			
+			}
+			++g;
+		}
+		++dynamic_iter;
+	}
+	
+	glBufferData(GL_ARRAY_BUFFER, sizeof(glyph) * dynamic_strings.size()*wpstring_max_length, (const GLvoid*)glyphs, GL_DYNAMIC_DRAW);
+
+	delete [] glyphs;
+	WaitForSingleObject(handle, INFINITE);
+
+
+	glGenBuffers(1, &shared_IBOid);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, shared_IBOid);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, (common_indices_count-1)*sizeof(GLushort), (const GLvoid*)text_common_indices, GL_STATIC_DRAW);
+
+
+	delete [] text_common_indices;
+
+}
+
+std::string wpstring_holder::getDynamicString(int index) {
+	
+	return std::string(dynamic_strings[index].text);
+
+}
 

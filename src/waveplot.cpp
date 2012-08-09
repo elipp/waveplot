@@ -89,7 +89,6 @@ static float half_linewidth = linewidth/2.0;
 static texture gradient_texture, font_texture, slider_texture, solid_color_texture;
 
 static std::vector<line> lines;
-static std::vector<wpstring> strings;
 
 static GLuint uniform_texture1_loc, uniform_projection_loc, uniform_modelview_loc;
 static GLuint uniform_texture1_loc_fullscreen_quad;
@@ -142,7 +141,7 @@ void View::zoomOut() {
 static GLuint FBOid, FBOtextureid;	// for post-processing
 
 
-bool texture::make_texture(const char* filename, GLint filter_flag) {
+bool texture::make_texture(const std::string& filename, GLint filter_flag) {
 
 	std::ifstream input(filename, std::ios::binary);
 
@@ -874,41 +873,51 @@ void drawWaveVertexArray() {
 void drawText() {
 	
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-	static std::vector<wpstring>::const_iterator iter;
-
-	// damn static variables. ;-)
 	
-	iter = strings.begin();
 	
-	while(iter != strings.end()) {
-		
-		glBindBuffer(GL_ARRAY_BUFFER, (*iter).bufObj.VBOid);
+	glBindBuffer(GL_ARRAY_BUFFER, wpstring_holder::get_static_VBOid());
 #ifdef _WIN32
-		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
-		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
 
 #elif __linux__
 		glVertexPointer(2, GL_FLOAT, sizeof(vertex), NULL);
 		glTexCoordPointer(2, GL_FLOAT, sizeof(vertex), BUFFER_OFFSET(8));
 #endif
 	
-		glUseProgram(passthrough_shader_program->programHandle());
-		glUniform1i(uniform_texture1_loc, 0);
+	glUseProgram(passthrough_shader_program->programHandle());
+	glUniform1i(uniform_texture1_loc, 0);
+	
+	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)Text::projection_matrix.rawdata());
+	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)Text::modelview_matrix.rawdata());
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, wpstring_holder::get_IBOid());
+	
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, font_texture.textureId);
+
+	glDrawElements(GL_TRIANGLES, 6*wpstring_holder::get_static_strings_total_length(), GL_UNSIGNED_SHORT, NULL);
 		
-		glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)Text::projection_matrix.rawdata());
-		glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)Text::modelview_matrix.rawdata());
+	glBindBuffer(GL_ARRAY_BUFFER, wpstring_holder::get_dynamic_VBOid());
+	// not sure if needed or not
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
 
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (*iter).bufObj.IBOid);
+	glUseProgram(passthrough_shader_program->programHandle());
+	glUniform1i(uniform_texture1_loc, 0);
+	
+	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)Text::projection_matrix.rawdata());
+	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)Text::modelview_matrix.rawdata());
 
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, font_texture.textureId);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, wpstring_holder::get_IBOid());
+	
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, font_texture.textureId);
 
-		glDrawElements(GL_TRIANGLES, 6*(*iter).length, GL_UNSIGNED_SHORT, NULL);
-		
-		glUseProgram(0);
-		++iter;
-	}
+	glDrawElements(GL_TRIANGLES, 6*wpstring_holder::getDynamicStringCount()*wpstring_max_length, GL_UNSIGNED_SHORT, NULL);
+
+	glUseProgram(0);
+	
 
 }
 
@@ -1361,30 +1370,31 @@ void initializeStrings() {
 	// NOTE: it wouldn't be such a bad idea to just take in a vector 
 	// of strings, and to generate one single static VBO for them all.
 
-	const std::size_t STRLEN_MAX = 64;
-
 	std::string string1 = "Filename: " + input_filename;
-	strings.push_back(wpstring(string1, STRLEN_MAX, 15, 15));
+	wpstring_holder::append(wpstring(string1, 15, 15), WPS_DYNAMIC);
 
 	std::string frames("Frames per second: ");
-	strings.push_back(wpstring(frames, frames.length(), WIN_W-180, WIN_H-20));
+	wpstring_holder::append(wpstring(frames, WIN_W-180, WIN_H-20), WPS_STATIC);
 
 	// reserved index 2 for FPS display.
 	std::string initialfps = "00.00";
-	strings.push_back(wpstring(initialfps, initialfps.length(), WIN_W-50, WIN_H-20));
+	wpstring_holder::append(wpstring(initialfps, WIN_W-50, WIN_H-20), WPS_DYNAMIC);
 	
 	char buf[16];
 	sprintf(buf, "%d", BUFSIZE);
 	const std::string buffer_size(buf);
 	const std::string bufinfostring = "Buffer size / # of samples: " + buffer_size;
-	strings.push_back(wpstring(bufinfostring, STRLEN_MAX, 15, WIN_H-20));
+	wpstring_holder::append(wpstring(bufinfostring, 15, WIN_H-20), WPS_DYNAMIC);
 
 	const std::string help1("Press 'o' to open a new file.");
-	strings.push_back(wpstring(help1, help1.length(), WIN_W-220, 20));
+	wpstring_holder::append(wpstring(help1, WIN_W-220, 20), WPS_STATIC);
 	const std::string help2("'p' for polygonmode toggle.");
-	strings.push_back(wpstring(help2, help2.length(), WIN_W-220, 35));
+	wpstring_holder::append(wpstring(help2, WIN_W-220, 35), WPS_STATIC);
 	const std::string help3("'t' for texture toggle.");
-	strings.push_back(wpstring(help3, help3.length(), WIN_W-220, 50));
+	wpstring_holder::append(wpstring(help3, WIN_W-220, 50), WPS_STATIC);
+
+	wpstring_holder::createBufferObjects();
+
 }
 
 
@@ -1503,14 +1513,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 							}			
 							const std::string strippedname = newfilename.substr(i+1, newfilename_len-i);
 
-							strings[0].updateString("Filename: " + strippedname);
+							wpstring_holder::updateDynamicString(0, "Filename: " + strippedname);
 							
 							char buf[16];
 							sprintf(buf, "%d", BUFSIZE);
 							const std::string buffer_size(buf);
 							const std::string bufinfostring = "Buffer size / # of samples: " + buffer_size;
 							
-							strings[3].updateString(bufinfostring);
+							wpstring_holder::updateDynamicString(2, bufinfostring);
 
 							}
 					}
@@ -1550,8 +1560,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 				char buffer[8];
 				sprintf(buffer, "%4.2f", fps);
 				std::string fps_str(buffer);
-				if (strings[2].text != fps_str) {
-					strings[2].updateString(buffer);
+				if (wpstring_holder::getDynamicString(1) != fps_str) {
+					wpstring_holder::updateDynamicString(1, buffer);
 				}
 				
 

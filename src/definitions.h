@@ -79,7 +79,7 @@ struct texture {
 	unsigned short height;
 	bool hasAlpha;
 
-	bool make_texture(const char* filename, GLint filter_flag);
+	bool make_texture(const std::string& filename, GLint filter_flag);
 };
 
 struct vertex {		// user defined constructors -> not aggregate
