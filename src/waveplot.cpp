@@ -752,8 +752,8 @@ void drawWave() {
 	wave_modelview(3,1) = View::wave_position(1);
 	glUseProgram(passthrough_shader_program->programHandle());
 	glUniform1i(uniform_texture1_loc, 0);
-	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)wave_projection.rawdata());
-	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)wave_modelview.rawdata());
+	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)wave_projection.rawData());
+	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)wave_modelview.rawData());
 	
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, waveData.IBOid);
 
@@ -788,6 +788,8 @@ void drawWave() {
 	glUseProgram(0);
 	
 }
+
+// draw contents of FBO for fullscreen filtering (we have yet to come up with a good one)
 
 void drawFullScreenQuad() {
 	
@@ -829,8 +831,8 @@ void drawWaveVertexArray() {
 
 	glUseProgram(passthrough_shader_program->programHandle());
 	glUniform1i(uniform_texture1_loc, 0);
-	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)wave_projection.rawdata());
-	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)wave_modelview.rawdata());
+	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)wave_projection.rawData());
+	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)wave_modelview.rawData());
 		
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
@@ -888,8 +890,8 @@ void drawText() {
 	glUseProgram(passthrough_shader_program->programHandle());
 	glUniform1i(uniform_texture1_loc, 0);
 	
-	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)Text::projection_matrix.rawdata());
-	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)Text::modelview_matrix.rawdata());
+	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)Text::projection_matrix.rawData());
+	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)Text::modelview_matrix.rawData());
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, wpstring_holder::get_IBOid());
 	
@@ -906,8 +908,8 @@ void drawText() {
 	glUseProgram(passthrough_shader_program->programHandle());
 	glUniform1i(uniform_texture1_loc, 0);
 	
-	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)Text::projection_matrix.rawdata());
-	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)Text::modelview_matrix.rawdata());
+	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)Text::projection_matrix.rawData());
+	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)Text::modelview_matrix.rawData());
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, wpstring_holder::get_IBOid());
 	

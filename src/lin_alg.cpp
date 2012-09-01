@@ -6,10 +6,15 @@ static const __m128 ZERO_BUT_W1 = _mm_set_ps(1.0, 0.0, 0.0, 0.0);
 static const __m128 QUAT_CONJUGATE = _mm_set_ps(1.0, -1.0, -1.0, -1.0);	// in reverse order!
 static const __m128 QUAT_NO_ROTATION = _mm_set_ps(1.0, 0.0, 0.0, 0.0);
 static const int mask3021 = 0xC9, // 11 00 10 01_2
-				 mask3102 = 0xD2, // 11 01 00 10_2
-				 xyz_dot_mask = 0x71,
-				 xyzw_dot_mask = 0xF1;
+				mask3102 = 0xD2, // 11 01 00 10_2
+				xyz_dot_mask = 0x71,
+				xyzw_dot_mask = 0xF1;
 #endif
+
+static const float identity_arr[] = { 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 };
+
+const vec4 vec4::zero_const = vec4(ZERO);
+const mat4 mat4::identity_const = mat4(identity_arr);
 
 const char* checkCPUCapabilities() {
 #ifdef _WIN32
@@ -73,7 +78,7 @@ vec4::vec4(const float* const a) {
 
 }
 
-void vec4::operator*=(const float& scalar) {
+void vec4::operator*=(float scalar) {
 
 #ifdef _WIN32
 	// use xmmintrin
@@ -92,20 +97,33 @@ void vec4::operator*=(const float& scalar) {
 
 }
 
-vec4 operator*(const float& scalar, vec4& v) {
+vec4 operator*(float scalar, const vec4& v) {
 
-	vec4 r(v.data);
+	vec4 r(v.getData());
 	r *= scalar;
 	return r;
 
 }	
 
-vec4 vec4::operator*(const float& scalar) {
+vec4 vec4::operator*(float scalar) const{
 
 	vec4 v(this->data);
 	v *= scalar;
 	return v;
 
+}
+
+void vec4::operator/=(float scalar) {
+	const __m128 scalar_recip = _mm_set1_ps(1.0/scalar);
+	this->data = _mm_mul_ps(this->data, scalar_recip);
+
+}
+
+
+vec4 vec4::operator/(float scalar) const {
+	vec4 v = (*this);
+	v /= scalar;
+	return v;
 }
 
 void vec4::operator+=(const vec4 &b) {
@@ -114,7 +132,7 @@ void vec4::operator+=(const vec4 &b) {
 
 }
 
-vec4 vec4::operator+(const vec4 &b) {
+vec4 vec4::operator+(const vec4 &b) const {
 #ifdef _WIN32
 
 	vec4 v = (*this);
@@ -126,6 +144,16 @@ vec4 vec4::operator+(const vec4 &b) {
 	return vec4(data[0]+b.data[0],data[1]+b.data[1],data[2]+b.data[2],data[3]+b.data[3]);
 
 #endif
+}
+
+void vec4::operator-=(const vec4 &b) {
+	this->data=_mm_sub_ps(data, b.data);
+}
+
+vec4 vec4::operator-(const vec4 &b) const {
+	vec4 v = (*this);
+	v -= b;
+	return v;
 }
 
 float vec4::length3() const {
@@ -173,6 +201,16 @@ void vec4::normalize() {
 
 }
 
+vec4 vec4::normalized() const {
+	vec4 v = (*this);
+	v.normalize();
+	return v;
+}
+
+void vec4::zero() {
+	(*this) = vec4::zero_const;
+}
+
 void vec4::print(){
 
 #ifdef _WIN32
@@ -201,6 +239,10 @@ void mat4::print() {
 	}
 
 #endif
+}
+
+void* vec4::rawData() const {
+	return (void*)&data;
 }
 
 
@@ -244,6 +286,15 @@ vec4 cross(const vec4 &a, const vec4 &b) {
 #endif
 }
 
+mat4 vec4::toTranslationMatrix() const {
+	mat4 M(MAT_IDENTITY);
+	M.assignToColumn(3, (*this));
+	return M;
+}
+
+
+
+
 
 mat4::mat4() {
 #ifdef _WIN32
@@ -256,6 +307,7 @@ mat4::mat4() {
 #endif
 
 }
+
 mat4::mat4(const float *arr) {
 #ifdef _WIN32
 	data[0] = _mm_loadu_ps(arr);
@@ -287,12 +339,14 @@ mat4::mat4(const int main_diagonal_val) {
 }
 
 
+// stupid constructor.
+
 mat4::mat4(const vec4& c1, const vec4& c2, const vec4& c3, const vec4& c4) {
 
-	data[0] = c1.data;
-	data[1] = c2.data;
-	data[2] = c3.data;
-	data[3] = c4.data;
+	data[0] = c1.getData();
+	data[1] = c2.getData();
+	data[2] = c3.getData();
+	data[3] = c4.getData();
 
 }
 
@@ -350,7 +404,7 @@ vec4 mat4::operator* (const vec4& R) const {
 	const mat4 M = (*this).transposed();
 	vec4 v;
 	for (int i = 0; i < 4; i++) 
-		v.data.m128_f32[i] = _mm_dp_ps(M.data[i], R.data, xyzw_dot_mask).m128_f32[0];	
+		v.getData().m128_f32[i] = _mm_dp_ps(M.data[i], R.getData(), xyzw_dot_mask).m128_f32[0];	
 
 	return v;
 
@@ -374,13 +428,8 @@ vec4 mat4::operator* (const vec4& R) const {
 void mat4::identity() {
 #ifdef _WIN32
 
-	mat4 &a = (*this);
-	a.zero();
-	// dislike using operator(), but cba to expand it :D
-	a(0,0) = 1.0;
-	a(1,1) = 1.0;
-	a(2,2) = 1.0;
-	a(3,3) = 1.0;
+	// better design than to do (*this)(0,0) = 1.0 etc
+	(*this) = identity_const;
 
 #elif __linux__
 	memset(this->data, 0, sizeof(this->data));
@@ -392,7 +441,7 @@ void mat4::identity() {
 #endif
 }
 
-vec4 mat4::row(const int &i) const {
+vec4 mat4::row(int i) const {
 #ifdef _WIN32		
 	return vec4((*this).transposed().data[i]);
 
@@ -410,7 +459,7 @@ vec4 mat4::row(const int &i) const {
 
 }
 
-vec4 mat4::column(const int &i) const {
+vec4 mat4::column(int i) const {
 #ifdef _WIN32
 	return vec4(this->data[i]);
 #elif __linux__
@@ -418,16 +467,16 @@ vec4 mat4::column(const int &i) const {
 #endif
 }
 
-void mat4::assignToColumn(const int &column, const vec4& v) {
+void mat4::assignToColumn(int column, const vec4& v) {
 #ifdef _WIN32
-	this->data[column] = v.data;
+	this->data[column] = v.getData();
 #elif __linux__
 	// NYI
 #endif
 
 }
 
-void mat4::assignToRow(const int &row, const vec4& v) {
+void mat4::assignToRow(int row, const vec4& v) {
 #ifdef _WIN32
 	// here, since 
 	// 1. row operations are inherently slower than column operations, and
@@ -440,7 +489,7 @@ void mat4::assignToRow(const int &row, const vec4& v) {
 	// constructed of actual vec4s (which is something one should consider anyway)
 
 	this->T();
-	this->data[row] = v.data;
+	this->data[row] = v.getData();
 	this->T();
 	
 #elif __linux__
@@ -453,7 +502,7 @@ void mat4::assignToRow(const int &row, const vec4& v) {
 
 }
 // return by void pointer? :P
-void *mat4::rawdata() const {
+void *mat4::rawData() const {
 #ifdef _WIN32
 	return (void*)&data[0];	// seems to work just fine :D
 #elif __linux__
@@ -486,13 +535,12 @@ void mat4::printRaw() const {
 }
 
 
-void mat4::make_proj_orthographic(float const & left, float const & right, float const & bottom, float const & top, float const & zNear, float const & zFar) {
+void mat4::make_proj_orthographic(float left, float right, float bottom, float top, float zNear, float zFar) {
 
 	// We could just assume here that the matrix is "clean",
 	// i.e. that any matrix elements other than the ones used in
 	// a pure orthographic projection matrix are zero.
 		
-
 	mat4 &M = (*this);
 	
 	M.identity();
@@ -504,23 +552,37 @@ void mat4::make_proj_orthographic(float const & left, float const & right, float
 	M(3,0) = - (right + left) / (right - left);
 	M(3,1) = - (top + bottom) / (top - bottom);
 	M(3,2) = - (zFar + zNear) / (zFar - zNear);
-	// the element at [3][3] is already 1 (identity() was called)
+	// the element at (3,3) is already 1 (identity() was called)
 }
 
-void mat4::make_proj_perspective(float const & left, float const & right, float const & bottom, float const & top, float const & zNear, float const & zFar) {
+void mat4::make_proj_perspective(float left, float right, float bottom, float top, float zNear, float zFar) {
 		
 
 	mat4 &M = (*this);
 	M.identity();
 
-	M(0,0) = 2*zNear/(right-left);
-	M(1,1) = 2*zNear/(top-bottom);
+	M(0,0) = (2*zNear)/(right-left);
+	M(1,1) = (2*zNear)/(top-bottom);
 	M(2,0) = (right+left)/(right-left);
 	M(2,1) = (top+bottom)/(top-bottom);
 	M(2,2) = -(zFar + zNear)/(zFar - zNear);
-	M(2,3) = -1;
+	M(2,3) = -1.0;
 	M(3,2) = -(2*zFar*zNear)/(zFar - zNear);
 	
+
+}
+
+// acts like a gluPerspective call :P
+
+void mat4::make_proj_perspective(float fov_radians, float aspect, float zNear, float zFar) {
+
+	// used glm as a reference
+
+	const float range = tan(fov_radians/2.0) * zNear;
+	const float left = -range * aspect;
+	const float right = range * aspect;
+
+	this->make_proj_perspective(left, right, -range, range, zNear, zFar);
 
 }
 
@@ -557,6 +619,8 @@ mat4 mat4::transposed() const {
 
 }
 
+
+
 // i'm not quite sure why anybody would ever want to construct a quaternion like this :-XD
 Quaternion::Quaternion(float x, float y, float z, float w) { 
 	data = _mm_set_ps(w, z, y, x);	// in reverse order
@@ -568,7 +632,23 @@ Quaternion Quaternion::conjugate() const {
 	return Quaternion(_mm_mul_ps(this->data, QUAT_CONJUGATE));	
 }
 
-void Quaternion::print() const { printf("[(%4.3f, %4.3f, %4.3f), %4.3f]\n\n", element(Q::x), element(Q::y), element(Q::z), element(Q::w)); }
+Quaternion Quaternion::fromAxisAngle(float x, float y, float z, float angle) {
+
+	Quaternion q;
+	const float sin_angle = sin(angle);
+	
+	vec4 axis(x, y, z, 0);
+	axis.normalize();
+
+	q.data.m128_f32[Q::w] = cos(angle);
+	q.data.m128_f32[Q::x] = sin_angle * axis.element(V::x);
+	q.data.m128_f32[Q::y] = sin_angle * axis.element(V::y);
+	q.data.m128_f32[Q::z] = sin_angle * axis.element(V::z);
+
+	return q;
+}
+
+void Quaternion::print() const { printf("[(%4.6f, %4.6f, %4.6f), %4.6f]\n\n", element(Q::x), element(Q::y), element(Q::z), element(Q::w)); }
 
 
 void Quaternion::normalize() { 
@@ -584,16 +664,21 @@ void Quaternion::normalize() {
 Quaternion Quaternion::operator*(const Quaternion &b) const {
 #ifdef _WIN32
 
-	// q1*q2 = w1w2 + dot(v1,v2) + cross(v1,v2)
-
+	// q1*q2 = q3
+	// q3 = v3 + w3,
+	// v = w1w2 - dot(v1, v2), 
+	// w = w1v2 + w2v1 + cross(v1, v2)
 
 	const Quaternion &a = (*this);
+
 	Quaternion ret(
 	_mm_sub_ps(
 	_mm_mul_ps(_mm_shuffle_ps(a.data, a.data, mask3021), _mm_shuffle_ps(b.data, b.data, mask3102)),
 	_mm_mul_ps(_mm_shuffle_ps(a.data, a.data, mask3102), _mm_shuffle_ps(b.data, b.data, mask3021))));
+	
+	ret += a.element(Q::w)*b + b.element(Q::w)*a;
 
-	ret.data.m128_f32[Q::w] = a.data.m128_f32[Q::w]*b.data.m128_f32[Q::w] + _mm_dp_ps(a.data, b.data, xyz_dot_mask).m128_f32[0];
+	ret(Q::w) = a.data.m128_f32[Q::w]*b.data.m128_f32[Q::w] - _mm_dp_ps(a.data, b.data, xyz_dot_mask).m128_f32[0];
 
 	return ret;
 
@@ -603,16 +688,35 @@ Quaternion Quaternion::operator*(const Quaternion &b) const {
 
 }
 
+void Quaternion::operator*=(const Quaternion &b) {
+	(*this) = (*this) * b;
+}
+
+Quaternion Quaternion::operator*(float scalar) const {
+	return Quaternion(_mm_mul_ps(_mm_set1_ps(scalar), data));
+}
+
+void Quaternion::operator*=(float scalar) {
+	this->data = _mm_mul_ps(_mm_set1_ps(scalar), data);
+}
+
+
 Quaternion Quaternion::operator+(const Quaternion& b) const {
 	return Quaternion(_mm_add_ps(this->data, b.data));
 }
+
+void Quaternion::operator+=(const Quaternion &b) {
+	this->data = _mm_add_ps(this->data, b.data);
+}
+
+// a name such as "applyQuaternionRotation" would be much more fitting,
+// since quaternion-vector multiplication doesn't REALLY exist
 
 vec4 Quaternion::operator*(const vec4& b) const {
 
 	vec4 v(b);
 	v.normalize();
-	Quaternion vec_q, res_q;
-	vec_q.data = b.data;
+	Quaternion vec_q(b.getData()), res_q;
 	vec_q(Q::w) = 0.0;
 
 	res_q = vec_q * (*this).conjugate();
@@ -627,7 +731,7 @@ mat4 Quaternion::toRotationMatrix() const {
 	// 2 multiplications, two shuffles, and one regular
 	// multiplication. not sure it's quite worth it though :P
 
-	// ASSUMING NORMALIZED QUATERNION!
+	// ASSUMING *this is a NORMALIZED QUATERNION!
 
 	using namespace Q;	// to use x, y etc. instead of Q::x, Q::y
 
@@ -646,4 +750,8 @@ mat4 Quaternion::toRotationMatrix() const {
 				vec4(2.0 * (xz - yw), 2.0 * (yz + xw), 1.0 - 2.0 * (x2 + y2), 0.0),
 				vec4(0.0, 0.0, 0.0, 1.0));
 
+}
+
+Quaternion operator*(float scalar, const Quaternion& q) {
+	return Quaternion(_mm_mul_ps(_mm_set1_ps(scalar), q.getData()));
 }
