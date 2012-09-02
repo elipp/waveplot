@@ -57,6 +57,7 @@ class vec4 {
 	
 	void operator-=(const vec4& b);
 	vec4 operator-(const vec4& b) const;
+	vec4 operator-() const; // unary -
 
 	float length3() const;
 	float length4() const;

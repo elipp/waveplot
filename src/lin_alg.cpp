@@ -2,7 +2,7 @@
 
 #ifdef _WIN32
 static const __m128 ZERO = _mm_setzero_ps();
-static const __m128 ZERO_BUT_W1 = _mm_set_ps(1.0, 0.0, 0.0, 0.0);
+static const __m128 MINUS_ONES = _mm_set_ps(-1.0, -1.0, -1.0, -1.0);
 static const __m128 QUAT_CONJUGATE = _mm_set_ps(1.0, -1.0, -1.0, -1.0);	// in reverse order!
 static const __m128 QUAT_NO_ROTATION = _mm_set_ps(1.0, 0.0, 0.0, 0.0);
 static const int mask3021 = 0xC9, // 11 00 10 01_2
@@ -156,10 +156,14 @@ vec4 vec4::operator-(const vec4 &b) const {
 	return v;
 }
 
+vec4 vec4::operator-() const { 
+	return vec4(_mm_mul_ps(MINUS_ONES, this->data));
+}
+
 float vec4::length3() const {
 #ifdef _WIN32
 
-	return sqrt(_mm_dp_ps(this->data, this->data, 0x71).m128_f32[0]);
+	return sqrt(_mm_dp_ps(this->data, this->data, xyz_dot_mask).m128_f32[0]);
 
 #elif __linux__
 	const vec4 &v = (*this);
@@ -173,7 +177,7 @@ float vec4::length4() const {
 
 #ifdef _WIN32
 
-	return sqrt(_mm_dp_ps(this->data, this->data, 0xF1).m128_f32[0]);	// includes x,y,z,w in the computation
+	return sqrt(_mm_dp_ps(this->data, this->data, xyzw_dot_mask).m128_f32[0]);	// includes x,y,z,w in the computation
 
 #elif __linux__
 	const vec4 &v = (*this);
@@ -202,7 +206,7 @@ void vec4::normalize() {
 }
 
 vec4 vec4::normalized() const {
-	vec4 v = (*this);
+	vec4 v(*this);
 	v.normalize();
 	return v;
 }
@@ -248,13 +252,28 @@ void* vec4::rawData() const {
 
 float dot(const vec4 &a, const vec4 &b) {
 #ifdef _WIN32
-
-	__m128 dot = _mm_dp_ps(a.data, b.data, xyz_dot_mask);	// direct computation of dot product (SSE4)
+	// direct computation of dot product (SSE4, xyz)
+	__m128 dot = _mm_dp_ps(a.data, b.data, xyz_dot_mask);	
 	return dot.m128_f32[0];	 
 	
-	/*// yet another solution	
+	/* SSE solution
 	__m128 mul = _mm_mul_ps(a.data, b.data);
-	return mul.m128_f32[0]+mul.m128_f32[1]+mul.m128_f32[2]+mul.m128_f32[3];*/
+	return mul.m128_f32[0]+mul.m128_f32[1]+mul.m128_f32[2]+mul.m128_f32[3]; // for xyzw
+	return mul.m128_f32[0]+mul.m128_f32[1]+mul.m128_f32[2] // for xyz only
+	// the xyz version disassembly is the following:
+	// fld, fadd, fadd, fstp; only four instructions.
+
+	 //or, if SSE3 is available (xyzw)
+	 __m128 mul = _mm_mul_ps(a.data, b.data);
+	 mul = _mm_hadd_ps(mul, mul);
+	 return _mm_hadd_ps(mul, mul).m128_f32[0];
+	
+	// SSE3 xyz:
+	 __m128 mul = _mm_mul_ps(a.data, b.data);
+	 mul.m128_f32[3] = 0.0;	// zeroing out a f32 field in a __m128 union
+							// generates only two instructions, a fldz and a fstp
+	 mul = _mm_hadd_ps(mul, mul);
+	 return _mm_hadd_ps(mul, mul).m128_f32[0]; */
 
 #elif __linux__
 
