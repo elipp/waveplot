@@ -127,8 +127,8 @@ void vec4::operator*=(float scalar) {
 
 #ifdef _WIN32
 	// use xmmintrin
-	data = _mm_mul_ps(data, _mm_load1_ps(&scalar));
-
+	// data = _mm_mul_ps(data, _mm_load1_ps(&scalar)); // not quite sure this works
+	data = _mm_mul_ps(data, _mm_set1_ps(scalar));	// the disassembly is pretty much identical between the two though
 #elif __linux__
 
 	vec4 &a = (*this);
@@ -159,6 +159,7 @@ vec4 vec4::operator*(float scalar) const{
 }
 
 void vec4::operator/=(float scalar) {
+	// _mm_rcp_ps returns a rough approximation
 	const __m128 scalar_recip = _mm_rcp_ps(_mm_set1_ps(scalar));
 	this->data = _mm_mul_ps(this->data, scalar_recip);
 
@@ -236,9 +237,18 @@ float vec4::length4() const {
 
 void vec4::normalize() {
 #ifdef _WIN32
+
+	// 0.08397us/iteration for this
 	//const float l_recip = 1.0/sqrt(_mm_dp_ps(this->data, this->data, xyz_dot_mask).m128_f32[0]); // only x,y,z components
-	const float l_recip = 1.0/sqrt(MM_DPPS_XYZ(this->data, this->data)); // only x,y,z components
-	this->data = _mm_mul_ps(this->data, _mm_set1_ps(l_recip));
+	//this->data = _mm_mul_ps(this->data, _mm_set1_ps(l_recip));
+
+	// 0.07257us/iteration, probably has a bigger error margin though
+	//const __m128 l_recip = _mm_rcp_ps(_mm_sqrt_ps(_mm_set1_ps(MM_DPPS_XYZ(this->data, this->data)))); // only x,y,z components
+	//this->data = _mm_mul_ps(this->data, l_recip);
+
+	// in debug mode (no optimization whatsoever), stripping the temporary value increased 
+	// performance to about 0.06786us/iteration
+	this->data = _mm_mul_ps(this->data, _mm_rcp_ps(_mm_sqrt_ps(_mm_set1_ps(MM_DPPS_XYZ(this->data, this->data)))));
 #elif __linux__
 
 	const float l_recip = 1.0/sqrt(length3());
