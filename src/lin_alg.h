@@ -124,9 +124,13 @@ public:
 	mat4(const vec4& c1, const vec4& c2, const vec4& c3, const vec4& c4);
 
 	void zero();
-	void identity();	// "in place identity"
-	void T();			// "in place transpose"
+	void identity();
+
+	void transpose();
 	mat4 transposed() const;
+
+	void invert();
+	mat4 inverted() const;
 	
 	static mat4 translationMatrixFromVector(const vec4&);
 

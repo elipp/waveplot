@@ -7,8 +7,12 @@ static const __m128 QUAT_CONJUGATE = _mm_set_ps(1.0, -1.0, -1.0, -1.0);	// in re
 static const __m128 QUAT_NO_ROTATION = _mm_set_ps(1.0, 0.0, 0.0, 0.0);
 static const int mask3021 = 0xC9, // 11 00 10 01_2
 				mask3102 = 0xD2, // 11 01 00 10_2
+				mask1032 = 0x4E, // 01 00 11 10_2
 				xyz_dot_mask = 0x71,
 				xyzw_dot_mask = 0xF1;
+
+static float (*MM_DPPS_XYZ)(__m128 a, __m128 b);
+static float (*MM_DPPS_XYZW)(__m128 a, __m128 b);
 #endif
 
 static const float identity_arr[] = { 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 };
@@ -16,22 +20,63 @@ static const float identity_arr[] = { 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.
 const vec4 vec4::zero_const = vec4(ZERO);
 const mat4 mat4::identity_const = mat4(identity_arr);
 
+static inline float MM_DPPS_XYZ_SSE(__m128 a, __m128 b) {
+	const __m128 mul = _mm_mul_ps(a, b);
+	return mul.m128_f32[0]+mul.m128_f32[1]+mul.m128_f32[2];
+}
+
+static inline float MM_DPPS_XYZW_SSE(__m128 a, __m128 b) {
+	const __m128 mul = _mm_mul_ps(a, b);	
+	return mul.m128_f32[0]+mul.m128_f32[1]+mul.m128_f32[2] + mul.m128_f32[3];
+}
+
+static inline float MM_DPPS_XYZ_SSE3(__m128 a, __m128 b) {
+	 __m128 mul = _mm_mul_ps(a, b);
+	 mul.m128_f32[3] = 0.0;	// zeroing out a f32 field in a __m128 union
+							// generates only two instructions, a fldz and a fstp
+	 mul = _mm_hadd_ps(mul, mul);
+	 return _mm_hadd_ps(mul, mul).m128_f32[0]; 
+}
+
+static inline float MM_DPPS_XYZW_SSE3(__m128 a, __m128 b) {
+	__m128 mul = _mm_mul_ps(a, b);
+	 mul = _mm_hadd_ps(mul, mul);
+	 return _mm_hadd_ps(mul, mul).m128_f32[0];
+}
+
+static inline float MM_DPPS_XYZ_SSE41(__m128 a, __m128 b) {
+	return _mm_dp_ps(a, b, xyz_dot_mask).m128_f32[0];	
+}
+
+static inline float MM_DPPS_XYZW_SSE41(__m128 a, __m128 b) {
+	return _mm_dp_ps(a, b, xyzw_dot_mask).m128_f32[0];
+}
+
+// fallback
+
 const char* checkCPUCapabilities() {
 #ifdef _WIN32
 	int a[4];
 	__cpuid(a, 1);
 
-	// SSE
 	if (!(a[3] & (0x1 << 25))) {
 		return "SSE not supported by host processor!";
 	}
-	// SSE2
-	if (!(a[3] & (0x1 << 26))) {
-		return "SSE2 not supported by host processor!"; 
+	else if (!(a[2] & (0x1))) {
+		printf("SSE3 not supported by host processor. Using SSE for dot product computation.\n"); 
+		MM_DPPS_XYZ = MM_DPPS_XYZ_SSE;
+		MM_DPPS_XYZW = MM_DPPS_XYZW_SSE;
 	}
 	
-	if (!(a[2] & (0x1 << 19))) {
-		return "SSE4.1 not supported by host processor!";
+	else if (!(a[2] & (0x1 << 19))) {
+		printf("NOTE: SSE4.1 not supported by host processor. Using SSE3 for dot product computation.\n");
+		MM_DPPS_XYZ = MM_DPPS_XYZ_SSE3;
+		MM_DPPS_XYZW = MM_DPPS_XYZW_SSE3;
+	}
+	else { 
+		printf("Using SSE4.1 for _mm_dp_ps.\n");
+		MM_DPPS_XYZ = MM_DPPS_XYZ_SSE41;
+		MM_DPPS_XYZW = MM_DPPS_XYZW_SSE41;
 	}
 	
 	return "OK";
@@ -114,7 +159,7 @@ vec4 vec4::operator*(float scalar) const{
 }
 
 void vec4::operator/=(float scalar) {
-	const __m128 scalar_recip = _mm_set1_ps(1.0/scalar);
+	const __m128 scalar_recip = _mm_rcp_ps(_mm_set1_ps(scalar));
 	this->data = _mm_mul_ps(this->data, scalar_recip);
 
 }
@@ -163,8 +208,8 @@ vec4 vec4::operator-() const {
 float vec4::length3() const {
 #ifdef _WIN32
 
-	return sqrt(_mm_dp_ps(this->data, this->data, xyz_dot_mask).m128_f32[0]);
-
+	//return sqrt(_mm_dp_ps(this->data, this->data, xyz_dot_mask).m128_f32[0]);
+	return sqrt(MM_DPPS_XYZ(this->data, this->data));
 #elif __linux__
 	const vec4 &v = (*this);
 	return sqrt(v.data[0]*v.data[0] + v.data[1]*v.data[1] + v.data[2]*v.data[2]);
@@ -177,8 +222,8 @@ float vec4::length4() const {
 
 #ifdef _WIN32
 
-	return sqrt(_mm_dp_ps(this->data, this->data, xyzw_dot_mask).m128_f32[0]);	// includes x,y,z,w in the computation
-
+	//return sqrt(_mm_dp_ps(this->data, this->data, xyzw_dot_mask).m128_f32[0]);	// includes x,y,z,w in the computation
+	return sqrt(MM_DPPS_XYZW(this->data, this->data));
 #elif __linux__
 	const vec4 &v = (*this);
 	return sqrt(v.data[0]*v.data[0] + v.data[1]*v.data[1] + v.data[2]*v.data[2] + v.data[3]*v.data[3]);
@@ -191,7 +236,8 @@ float vec4::length4() const {
 
 void vec4::normalize() {
 #ifdef _WIN32
-	const float l_recip = 1.0/sqrt(_mm_dp_ps(this->data, this->data, xyz_dot_mask).m128_f32[0]); // only x,y,z components
+	//const float l_recip = 1.0/sqrt(_mm_dp_ps(this->data, this->data, xyz_dot_mask).m128_f32[0]); // only x,y,z components
+	const float l_recip = 1.0/sqrt(MM_DPPS_XYZ(this->data, this->data)); // only x,y,z components
 	this->data = _mm_mul_ps(this->data, _mm_set1_ps(l_recip));
 #elif __linux__
 
@@ -252,9 +298,9 @@ void* vec4::rawData() const {
 
 float dot(const vec4 &a, const vec4 &b) {
 #ifdef _WIN32
-	// direct computation of dot product (SSE4, xyz)
-	__m128 dot = _mm_dp_ps(a.data, b.data, xyz_dot_mask);	
-	return dot.m128_f32[0];	 
+	/*__m128 dot = _mm_dp_ps(a.data, b.data, xyz_dot_mask);	
+	return dot.m128_f32[0];	*/
+	return MM_DPPS_XYZ(a.data, b.data);
 	
 	/* SSE solution
 	__m128 mul = _mm_mul_ps(a.data, b.data);
@@ -379,10 +425,10 @@ mat4 mat4::operator* (const mat4& R) const {
 	// we'll choose to transpose the other matrix, and instead of calling the perhaps
 	// more intuitive row(), we'll be calling column(), which is a LOT faster in comparison.
 	
-	// calculate using dot products (_mm_dp_ps)
 	for (int i = 0; i < 4; i++) {
 		for (int j = 0; j < 4; j++) {
-			ret.data[j].m128_f32[i] = _mm_dp_ps(R.data[j], L.data[i], xyzw_dot_mask).m128_f32[0];
+			//ret.data[j].m128_f32[i] = _mm_dp_ps(R.data[j], L.data[i], xyzw_dot_mask).m128_f32[0];
+			ret.data[j].m128_f32[i] = MM_DPPS_XYZW(R.data[j], L.data[i]);
 		}
 	}
 	
@@ -423,7 +469,8 @@ vec4 mat4::operator* (const vec4& R) const {
 	const mat4 M = (*this).transposed();
 	vec4 v;
 	for (int i = 0; i < 4; i++) 
-		v.getData().m128_f32[i] = _mm_dp_ps(M.data[i], R.getData(), xyzw_dot_mask).m128_f32[0];	
+		v(i) = MM_DPPS_XYZW(M.data[i], R.getData());
+		//v.getData().m128_f32[i] = _mm_dp_ps(M.data[i], R.getData(), xyzw_dot_mask).m128_f32[0];	
 
 	return v;
 
@@ -507,9 +554,9 @@ void mat4::assignToRow(int row, const vec4& v) {
 	// mat4.row(i) = vec4(...). However, this is only possible if the mat4 is 
 	// constructed of actual vec4s (which is something one should consider anyway)
 
-	this->T();
+	this->transpose();
 	this->data[row] = v.getData();
-	this->T();
+	this->transpose();
 	
 #elif __linux__
 		mat4& M = (*this);
@@ -607,7 +654,7 @@ void mat4::make_proj_perspective(float fov_radians, float aspect, float zNear, f
 
 // performs an "in-place transposition" of the matrix
 
-void mat4::T() {
+void mat4::transpose() {
 
 #ifdef _WIN32
 
@@ -639,6 +686,115 @@ mat4 mat4::transposed() const {
 }
 
 
+void mat4::invert() {
+
+}
+
+// REMEMBER TO REMOVE THIS
+inline void m128printf32(__m128 a) {
+	printf("%f %f %f %f\n", a.m128_f32[0], a.m128_f32[1], a.m128_f32[2], a.m128_f32[3]);
+}
+
+mat4 mat4::inverted() const {
+
+	mat4 m = this->transposed();
+	__m128 minor0, minor1, minor2, minor3;
+	// _mm_shuffle_pd(a, a, 1) can be used to swap the hi/lo qwords of a __m128d,
+	// and _mm_shuffle_ps(a, a, 0x4E) for a __m128
+
+	__m128	row0 = m.data[0], 
+			row1 = _mm_shuffle_ps(m.data[1], m.data[1], mask1032),
+			row2 = m.data[2], 
+			row3 = _mm_shuffle_ps(m.data[3], m.data[3], mask1032);
+
+	__m128 det, tmp1;
+
+	const float *src = (const float*)this->rawData();
+
+	// The following code fragment was copied (with minor adaptations of course)
+	// from http://download.intel.com/design/PentiumIII/sml/24504301.pdf.
+	// Other alternatives include https://github.com/LiraNuna/glsl-sse2/blob/master/source/mat4.h#L324,
+	// but based on pure intrinsic call count, the intel version is more concise (84 vs. 102)
+
+	tmp1 = _mm_mul_ps(row2, row3);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0xB1);
+	minor0 = _mm_mul_ps(row1, tmp1);
+	minor1 = _mm_mul_ps(row0, tmp1);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0x4E);
+	minor0 = _mm_sub_ps(_mm_mul_ps(row1, tmp1), minor0);
+	minor1 = _mm_sub_ps(_mm_mul_ps(row0, tmp1), minor1);
+	minor1 = _mm_shuffle_ps(minor1, minor1, 0x4E);
+
+
+	tmp1 = _mm_mul_ps(row1, row2);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0xB1);
+	minor0 = _mm_add_ps(_mm_mul_ps(row3, tmp1), minor0);
+	minor3 = _mm_mul_ps(row0, tmp1);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0x4E);
+	minor0 = _mm_sub_ps(minor0, _mm_mul_ps(row3, tmp1));
+	minor3 = _mm_sub_ps(_mm_mul_ps(row0, tmp1), minor3);
+	minor3 = _mm_shuffle_ps(minor3, minor3, 0x4E);
+
+
+	tmp1 = _mm_mul_ps(_mm_shuffle_ps(row1, row1, 0x4E), row3);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0xB1);
+	row2 = _mm_shuffle_ps(row2, row2, 0x4E);
+	minor0 = _mm_add_ps(_mm_mul_ps(row2, tmp1), minor0);
+	minor2 = _mm_mul_ps(row0, tmp1);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0x4E);
+	minor0 = _mm_sub_ps(minor0, _mm_mul_ps(row2, tmp1));
+	minor2 = _mm_sub_ps(_mm_mul_ps(row0, tmp1), minor2);
+	minor2 = _mm_shuffle_ps(minor2, minor2, 0x4E);
+
+
+	tmp1 = _mm_mul_ps(row0, row1);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0xB1);
+	minor2 = _mm_add_ps(_mm_mul_ps(row3, tmp1), minor2);
+	minor3 = _mm_sub_ps(_mm_mul_ps(row2, tmp1), minor3);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0x4E);
+	minor2 = _mm_sub_ps(_mm_mul_ps(row3, tmp1), minor2);
+	minor3 = _mm_sub_ps(minor3, _mm_mul_ps(row2, tmp1));
+
+
+	tmp1 = _mm_mul_ps(row0, row3);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0xB1);
+	minor1 = _mm_sub_ps(minor1, _mm_mul_ps(row2, tmp1));
+	minor2 = _mm_add_ps(_mm_mul_ps(row1, tmp1), minor2);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0x4E);
+	minor1 = _mm_add_ps(_mm_mul_ps(row2, tmp1), minor1);
+	minor2 = _mm_sub_ps(minor2, _mm_mul_ps(row1, tmp1));
+
+
+	tmp1 = _mm_mul_ps(row0, row2);
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0xB1);
+	minor1 = _mm_add_ps(_mm_mul_ps(row3, tmp1), minor1);
+	minor3 = _mm_sub_ps(minor3, _mm_mul_ps(row1, tmp1));
+	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0x4E);
+	minor1 = _mm_sub_ps(minor1, _mm_mul_ps(row3, tmp1));
+	minor3 = _mm_add_ps(_mm_mul_ps(row1, tmp1), minor3);
+	
+	det = _mm_mul_ps(row0, minor0);
+	det = _mm_add_ps(_mm_shuffle_ps(det, det, 0x4E), det);
+	det = _mm_add_ss(_mm_shuffle_ps(det, det, 0xB1), det);
+	tmp1 = _mm_rcp_ss(det);
+	det = _mm_sub_ss(_mm_add_ss(tmp1, tmp1), _mm_mul_ss(det, _mm_mul_ss(tmp1, tmp1)));
+	det = _mm_shuffle_ps(det, det, 0x00);
+	
+	minor0 = _mm_mul_ps(det, minor0);
+	m.data[0] = minor0;
+	
+	minor1 = _mm_mul_ps(det, minor1);
+	m.data[1] = minor1;
+	
+	minor2 = _mm_mul_ps(det, minor2);
+	m.data[2] = minor2;
+	
+	minor3 = _mm_mul_ps(det, minor3);
+	m.data[3] = minor3;
+
+	return m;
+}
+
 
 // i'm not quite sure why anybody would ever want to construct a quaternion like this :-XD
 Quaternion::Quaternion(float x, float y, float z, float w) { 
@@ -654,26 +810,25 @@ Quaternion Quaternion::conjugate() const {
 Quaternion Quaternion::fromAxisAngle(float x, float y, float z, float angle) {
 
 	Quaternion q;
-	const float sin_angle = sin(angle);
+	const __m128 sin_angle = _mm_set1_ps(sin(angle));
 	
 	vec4 axis(x, y, z, 0);
 	axis.normalize();
 
-	q.data.m128_f32[Q::w] = cos(angle);
-	q.data.m128_f32[Q::x] = sin_angle * axis.element(V::x);
-	q.data.m128_f32[Q::y] = sin_angle * axis.element(V::y);
-	q.data.m128_f32[Q::z] = sin_angle * axis.element(V::z);
-
+	q.data = _mm_mul_ps(sin_angle, axis.getData());
+	q(Q::w) = cos(angle);
+	
 	return q;
 }
 
-void Quaternion::print() const { printf("[(%4.6f, %4.6f, %4.6f), %4.6f]\n\n", element(Q::x), element(Q::y), element(Q::z), element(Q::w)); }
+void Quaternion::print() const { printf("[(%4.5f, %4.5f, %4.5f), %4.5f]\n\n", element(Q::x), element(Q::y), element(Q::z), element(Q::w)); }
 
 
 void Quaternion::normalize() { 
 
 	Quaternion &Q = (*this);
-	const float mag_squared = _mm_dp_ps(Q.data, Q.data, xyzw_dot_mask).m128_f32[0];
+	//const float mag_squared = _mm_dp_ps(Q.data, Q.data, xyzw_dot_mask).m128_f32[0];
+	const float mag_squared = MM_DPPS_XYZW(Q.data, Q.data);
 	if (fabs(mag_squared-1.0) > 0.001) {	// to prevent calculations from exploding
 		Q.data = _mm_mul_ps(Q.data, _mm_set1_ps(1.0/sqrt(mag_squared)));	
 	}
@@ -697,8 +852,8 @@ Quaternion Quaternion::operator*(const Quaternion &b) const {
 	
 	ret += a.element(Q::w)*b + b.element(Q::w)*a;
 
-	ret(Q::w) = a.data.m128_f32[Q::w]*b.data.m128_f32[Q::w] - _mm_dp_ps(a.data, b.data, xyz_dot_mask).m128_f32[0];
-
+	//ret(Q::w) = a.data.m128_f32[Q::w]*b.data.m128_f32[Q::w] - _mm_dp_ps(a.data, b.data, xyz_dot_mask).m128_f32[0];
+	ret(Q::w) = a.element(Q::w) * b.element(Q::w) - MM_DPPS_XYZ(a.data, b.data);
 	return ret;
 
 #elif __linux__
