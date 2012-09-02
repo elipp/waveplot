@@ -20,9 +20,11 @@ enum { MAT_ZERO = 0x0, MAT_IDENTITY = 0x1 };
 
 const char* checkCPUCapabilities();
 
+// forward declarations 
+
 class vec4;
 class mat4;
-class Quaternion;	// forward deklarations
+class Quaternion;
 
 #ifdef _WIN32
 __declspec(align(16)) // to ensure 16-byte alignment in memory
@@ -72,6 +74,7 @@ class vec4 {
 
 	friend float dot(const vec4 &a, const vec4 &b);
 	friend vec4 cross(const vec4 &a,  const vec4 &b);
+	friend vec4 operator*(float scalar, const vec4& v);
 
 	mat4 toTranslationMatrix() const;
 
@@ -122,6 +125,7 @@ public:
 	mat4(const float *data);
 	mat4(const int main_diagonal_val);
 	mat4(const vec4& c1, const vec4& c2, const vec4& c3, const vec4& c4);
+	mat4(const __m128& c1, const __m128& c2, const __m128& c3, const __m128& c4);
 
 	void zero();
 	void identity();
@@ -156,8 +160,14 @@ public:
 	void make_proj_perspective(float left, float right, float bottom, float top, float zNear, float zFar);
 	// gluPerspective-esque
 	void make_proj_perspective(float fov_radians, float aspect, float zNear, float zFar);
+
+	friend mat4 operator*(float scalar, const mat4& m);
+
 	
 };
+
+mat4 operator*(float scalar, const mat4& m);
+
 
 // the quaternion memory layout is as presented in the following enum
 
@@ -202,6 +212,8 @@ class Quaternion {
 	
 	static Quaternion fromAxisAngle(float x, float y, float z, float angle);
 	mat4 toRotationMatrix() const;
+
+	friend Quaternion operator*(float scalar, const Quaternion &q);
 
 };
 

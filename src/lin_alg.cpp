@@ -144,7 +144,7 @@ void vec4::operator*=(float scalar) {
 
 vec4 operator*(float scalar, const vec4& v) {
 
-	vec4 r(v.getData());
+	vec4 r(v.data);
 	r *= scalar;
 	return r;
 
@@ -415,6 +415,15 @@ mat4::mat4(const vec4& c1, const vec4& c2, const vec4& c3, const vec4& c4) {
 
 }
 
+// must be passed as references lolz, otherwise the last one will lose its alignment
+
+mat4::mat4(const __m128& c1, const __m128&  c2, const __m128&  c3, const __m128& c4) {
+	data[0] = c1;
+	data[1] = c2;
+	data[2] = c3;
+	data[3] = c4;
+}
+
 mat4 mat4::operator* (const mat4& R) const {
 
 #ifdef _WIN32
@@ -452,13 +461,6 @@ for (int i = 0; i < 4; i++)
 #endif
 }
 
-void mat4::zero() {
-#ifdef _WIN32
-	data[0] = data[1] = data[2] = data[3] = ZERO;
-#elif __linux__
-	memset(data, 0, sizeof(data));
-#endif
-}
 
 vec4 mat4::operator* (const vec4& R) const {
 
@@ -488,6 +490,23 @@ vec4 mat4::operator* (const vec4& R) const {
 #endif
 
 
+}
+
+mat4 operator*(float scalar, const mat4& m) {
+	const __m128 scalar_m128 = _mm_set1_ps(scalar);
+	return mat4(_mm_mul_ps(scalar_m128, m.data[0]), 
+				_mm_mul_ps(scalar_m128, m.data[1]),
+				_mm_mul_ps(scalar_m128, m.data[2]),
+				_mm_mul_ps(scalar_m128, m.data[3]));
+
+}
+
+void mat4::zero() {
+#ifdef _WIN32
+	data[0] = data[1] = data[2] = data[3] = ZERO;
+#elif __linux__
+	memset(data, 0, sizeof(data));
+#endif
 }
 
 
@@ -660,6 +679,22 @@ void mat4::transpose() {
 
 	_MM_TRANSPOSE4_PS(data[0], data[1], data[2], data[3]);	// microsoft special in-place transpose macro :P
 
+	/* Implemented as follows: (xmmintrin.h) (no copyright though)
+#define _MM_TRANSPOSE4_PS(row0, row1, row2, row3) {                 \
+            __m128 tmp3, tmp2, tmp1, tmp0;                          \
+                                                                    \
+            tmp0   = _mm_shuffle_ps((row0), (row1), 0x44);          \
+            tmp2   = _mm_shuffle_ps((row0), (row1), 0xEE);          \
+            tmp1   = _mm_shuffle_ps((row2), (row3), 0x44);          \
+            tmp3   = _mm_shuffle_ps((row2), (row3), 0xEE);          \
+                                                                    \
+            (row0) = _mm_shuffle_ps(tmp0, tmp1, 0x88);              \
+            (row1) = _mm_shuffle_ps(tmp0, tmp1, 0xDD);              \
+            (row2) = _mm_shuffle_ps(tmp2, tmp3, 0x88);              \
+            (row3) = _mm_shuffle_ps(tmp2, tmp3, 0xDD);              \
+        }
+		*/
+
 #elif __linux__
 
 	mat4 &m = (*this);
@@ -714,7 +749,7 @@ mat4 mat4::inverted() const {
 	// The following code fragment was copied (with minor adaptations of course)
 	// from http://download.intel.com/design/PentiumIII/sml/24504301.pdf.
 	// Other alternatives include https://github.com/LiraNuna/glsl-sse2/blob/master/source/mat4.h#L324,
-	// but based on pure intrinsic call count, the intel version is more concise (84 vs. 102)
+	// but based on pure intrinsic call count, the intel version is more concise (84 vs. 102, many of which shuffles)
 
 	tmp1 = _mm_mul_ps(row2, row3);
 	tmp1 = _mm_shuffle_ps(tmp1, tmp1, 0xB1);
