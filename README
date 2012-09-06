@@ -4,7 +4,7 @@ waveplot:
 	fixed-function rendering calls). The shaders use GLSL 330.
 	
 	Features:
-		- a highly tuned collection of linear algebra-related functions using SSE intrinsics
+		- a linear algebra suite using SSE intrinsics (up to SSE4.2)
 		- "inertial" mouse navigation, heads-up display
 	
 	Currently, only the Windows version compiles and works. 
