@@ -140,6 +140,6 @@ char* readRawWAVBuffer(std::ifstream& input, std::size_t *bufsize) {
 
 void printVertex(vertex * const v) {
 
-	printf("%f %f %f %f\n", v->x, v->y, v->u, v->v);
+	printf("%f %f %f %f\n", v->x(), v->y(), v->u(), v->v());
 
 }

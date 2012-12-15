@@ -82,12 +82,26 @@ struct texture {
 	bool make_texture(const std::string& filename, GLint filter_flag);
 };
 
+struct vec2 {
+	float data[2];
+	vec2(float _x, float _y) { data[0] = _x; data[1] = _y; }
+	vec2() {}
+	float& x() { return data[0]; }
+	float& y() { return data[1]; }
+	float& u() { return data[0]; }
+	float& v() { return data[1]; }
+};
+
 struct vertex {		// user defined constructors -> not aggregate
 
-	float x,y;
-	float u,v;
-	vertex(float _x, float _y, float _u, float _v) : x(_x), y(_y), u(_u), v(_v) {}
+	vec2 pos;
+	vec2 texc;
+	vertex(float _x, float _y, float _u, float _v) : pos(_x, _y), texc(_u, _v) {}
 	vertex() {} 
+	float& x() { return pos.x(); }
+	float& y() { return pos.y(); }
+	float& u() { return texc.u(); }
+	float& v() { return texc.v(); }
 
 };
 

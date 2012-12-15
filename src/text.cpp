@@ -1,6 +1,34 @@
 #include "text.h"
 #define SCL_SECURE_NO_WARNINGS	// gets rid of annoying copy warning :P
-static inline GLuint texcoord_index_from_char(char a){ return (GLuint)a - 0x20; }
+static inline GLuint texcoord_index_from_char(char c){ return c == '\0' ? sizeof(glyph_texcoords)/8 + 1 : (GLuint)c - 0x20; }
+static glyph glyph_from_char(float x, float y, char c) { 
+	glyph g;
+	
+	/*
+	glyphs[i].vertices[j].x = x + a +((j>>1)&1)*6.0;
+	glyphs[i].vertices[j].y = y + (((j+1)>>1)&1)*12.0;
+	glyphs[i].vertices[j].u = glyph_texcoords[texcoord_index_from_char(text[i])][2*j];
+	glyphs[i].vertices[j].v = glyph_texcoords[texcoord_index_from_char(text[i])][2*j+1]; */
+	int j = 0;
+	const GLuint tindex = texcoord_index_from_char(c);
+	g.vertices[0].pos = vec2(x + ((j>>1)&1)*6.0, y + (((j+1)>>1)&1)*12.0);
+	g.vertices[0].texc = vec2(glyph_texcoords[tindex][2*j], glyph_texcoords[tindex][2*j+1]);
+	
+	j = 1;
+	g.vertices[1].pos = vec2(x + ((j>>1)&1)*6.0, y + (((j+1)>>1)&1)*12.0);
+	g.vertices[1].texc = vec2(glyph_texcoords[tindex][2*j], glyph_texcoords[tindex][2*j+1]);
+
+	j = 2;
+	g.vertices[2].pos = vec2(x + ((j>>1)&1)*6.0, y + (((j+1)>>1)&1)*12.0);
+	g.vertices[2].texc = vec2(glyph_texcoords[tindex][2*j], glyph_texcoords[tindex][2*j+1]);
+
+	j = 3;
+	g.vertices[3].pos = vec2(x + ((j>>1)&1)*6.0, y + (((j+1)>>1)&1)*12.0);
+	g.vertices[3].texc = vec2(glyph_texcoords[tindex][2*j], glyph_texcoords[tindex][2*j+1]);
+
+	return g;
+
+}
 
 static const std::size_t common_indices_count = ((0x1<<16)/6)*6;
 
@@ -59,13 +87,8 @@ void wpstring::updateString(const std::string &newtext, int index) {
 
 	for (i=0; i < wpstring_max_length; i++) {
 		a = i * 7.0;	// the distance between two consecutive letters.
-		for (j=0; j < 4; j++) {
-				glyphs[i].vertices[j].x = x + a +((j>>1)&1)*6.0;
-				glyphs[i].vertices[j].y = y + (((j+1)>>1)&1)*12.0;
-				glyphs[i].vertices[j].u = glyph_texcoords[texcoord_index_from_char(text[i])][2*j];
-				glyphs[i].vertices[j].v = glyph_texcoords[texcoord_index_from_char(text[i])][2*j+1];
-			}
-		}
+		glyphs[i] = glyph_from_char(x+a, y, text[i]);
+	}
 
 
 	glBindBuffer(GL_ARRAY_BUFFER, wpstring_holder::get_dynamic_VBOid());
@@ -136,14 +159,7 @@ void wpstring_holder::createBufferObjects() {
 		std::size_t current_string_length = static_iter->getRealSize();
 		for (i=0; i < current_string_length; i++) {
 			a = i * 7.0;	// the distance between two consecutive letters.
-			for (j=0; j < 4; j++) {
-			
-				glyphs[g].vertices[j].x = static_iter->x + a +((j>>1)&1)*6.0;
-				glyphs[g].vertices[j].y = static_iter->y + (((j+1)>>1)&1)*12.0;
-				glyphs[g].vertices[j].u = glyph_texcoords[texcoord_index_from_char(static_iter->text[i])][2*j];
-				glyphs[g].vertices[j].v = glyph_texcoords[texcoord_index_from_char(static_iter->text[i])][2*j+1];
-
-			}
+			glyphs[g] = glyph_from_char(static_iter->x + a, static_iter->y, static_iter->text[i]);
 			++g;
 		}
 		++static_iter;
@@ -160,20 +176,14 @@ void wpstring_holder::createBufferObjects() {
 	
 	i = 0,j = 0, g = 0;
 
-	std::vector<wpstring>::iterator dynamic_iter = dynamic_strings.begin();
-
+	std::vector<wpstring>::iterator dynamic_iter;
+	dynamic_iter = dynamic_strings.begin();
+	glyphs[g] = glyph_from_char(dynamic_iter->x + a, dynamic_iter->y, dynamic_iter->text[i]);
 	while(dynamic_iter != dynamic_strings.end()) {
 
 		for (i=0; i < wpstring_max_length; i++) {
-			a = i * 7.0;	// the distance between two consecutive letters.
-			for (j=0; j < 4; j++) {
-			
-				glyphs[g].vertices[j].x = dynamic_iter->x + a +((j>>1)&1)*6.0;
-				glyphs[g].vertices[j].y = dynamic_iter->y + (((j+1)>>1)&1)*12.0;
-				glyphs[g].vertices[j].u = glyph_texcoords[texcoord_index_from_char(dynamic_iter->text[i])][2*j];
-				glyphs[g].vertices[j].v = glyph_texcoords[texcoord_index_from_char(dynamic_iter->text[i])][2*j+1];
-			
-			}
+			a = i * 7.0;	// the distance between two consecutive letters	is 7 pixels	
+			glyphs[g] = glyph_from_char(dynamic_iter->x + a, dynamic_iter->y, dynamic_iter->text[i]);
 			++g;
 		}
 		++dynamic_iter;

@@ -17,7 +17,6 @@
 #include <process.h>
 #endif
 
-#include <CL/cl.h>	// OpenCL =)
 
 #include <cstdio>
 #include <iostream>
@@ -376,7 +375,7 @@ triangle *bakeWaveVertexArrayUsingLineIntersections(float* samples, const std::s
 
 	triangles[triangle_count-1].v1 = triangles[triangle_count-2].v2;	
 	triangles[triangle_count-1].v2 = triangles[triangle_count-2].v1;	
-	triangles[triangle_count-1].v3 = vertex(triangles[triangle_count-2].v1.x+dx, half_WIN_H*samples[samplecount-1] + half_WIN_H, 1.0, 0.5);
+	triangles[triangle_count-1].v3 = vertex(triangles[triangle_count-2].v1.x()+dx, half_WIN_H*samples[samplecount-1] + half_WIN_H, 1.0, 0.5);
 
 	return triangles;
 }
@@ -501,7 +500,7 @@ vertex* bakeWaveVertexBufferUsingLineIntersections(const float* samples, const s
 	}
 	// these are still bugged
 	vertices[vertex_count-2] = vertex(30000, 0, 0, 0);
-	vertices[vertex_count-1] = vertex(vertices[vertex_count-2].x+dx, half_WIN_H*samples[samplecount-1] + half_WIN_H, 1.0, 0.5);
+	vertices[vertex_count-1] = vertex(vertices[vertex_count-2].x()+dx, half_WIN_H*samples[samplecount-1] + half_WIN_H, 1.0, 0.5);
 
 	return vertices;
 

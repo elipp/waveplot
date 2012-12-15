@@ -841,6 +841,11 @@ mat4 mat4::inverted() const {
 }
 
 
+inline float det(const mat4 &m) {
+
+
+}
+
 // i'm not quite sure why anybody would ever want to construct a quaternion like this :-XD
 Quaternion::Quaternion(float x, float y, float z, float w) { 
 	data = _mm_set_ps(w, z, y, x);	// in reverse order

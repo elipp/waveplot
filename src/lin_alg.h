@@ -168,6 +168,7 @@ public:
 
 mat4 operator*(float scalar, const mat4& m);
 
+inline float det(const mat4 &m);
 
 // the quaternion memory layout is as presented in the following enum
 
