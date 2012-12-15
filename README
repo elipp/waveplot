@@ -1,12 +1,10 @@
 waveplot: 
 	OpenGL .wav file waveform monitor for OpenGL 2.0+ compatible devices.
-	No deprecated OpenGL functionality is used (i.e. no matrix stack or fixed-function rendering calls). 
-	The shaders use GLSL 330.
+	No deprecated OpenGL functionality is used (i.e. no matrix stack or 
+	fixed-function rendering calls). The shaders use GLSL 330.
 	
 	Features:
-		- a highly tuned collection of linear algebra-related functions
-		  using MSVC intrinsics (relies heavily on the SSE4 instruction
-		  DPPS, or _mm_dp_ps())
+		- a linear algebra suite using SSE intrinsics (up to SSE4.2)
 		- "inertial" mouse navigation, heads-up display
 	
 	Currently, only the Windows version compiles and works. 
