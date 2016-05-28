@@ -34,6 +34,7 @@ PFNGLCHECKFRAMEBUFFERSTATUSPROC glCheckFramebufferStatus;
 PFNGLUSEPROGRAMPROC glUseProgram;
 PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer;
 PFNGLUNIFORM1IPROC glUniform1i;
+PFNGLGENERATEMIPMAPPROC glGenerateMipmap;
 
 int load_GL_extensions() {
 
@@ -123,6 +124,9 @@ int load_GL_extensions() {
 
 	glUniform1i = (PFNGLUNIFORM1IPROC)wglGetProcAddress("glUniform1i");
 	assert(glUniform1i);
+
+	glGenerateMipmap = (PFNGLGENERATEMIPMAPPROC)wglGetProcAddress("glGenerateMipmap");
+	assert(glGenerateMipmap);
 
 	return 1;
 }

@@ -126,4 +126,7 @@ extern PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer;
 typedef void (APIENTRYP PFNGLUNIFORM1IPROC) (GLint location, GLint v0);
 extern PFNGLUNIFORM1IPROC glUniform1i;
 
+typedef void (APIENTRYP PFNGLGENERATEMIPMAPPROC) (GLenum target);
+extern PFNGLGENERATEMIPMAPPROC glGenerateMipmap;
+
 int load_GL_extensions();

@@ -31,6 +31,7 @@
 #include "slider.h"
 #include "lin_alg.h"
 #include "timer.h"
+#include "texture.h"
 
 #define BUFFER_OFFSET(i) (reinterpret_cast<void*>(i))
 
@@ -84,7 +85,7 @@ static float half_WIN_H = (float) WIN_H / 2.0;
 static float linewidth = 1.8; 
 static float half_linewidth = linewidth/2.0;
 
-static texture gradient_texture, font_texture, slider_texture, solid_color_texture;
+static Texture gradient_texture, font_texture, slider_texture, solid_color_texture;
 
 static std::vector<line> lines;
 
@@ -139,59 +140,59 @@ void View::zoomOut() {
 static GLuint FBOid, FBOtextureid;	// for post-processing
 
 
-bool texture::make_texture(const std::string& filename, GLint filter_flag) {
-
-	std::ifstream input(filename, std::ios::binary);
-
-	if (!input.is_open()) {
-		printf("Couldn't open texture file %s\n", filename);
-		return false;
-	}
-	std::size_t filesize = cpp_getfilesize(input);
-
-	char* buffer = new char[filesize];
-
-	input.read(buffer, filesize);
-	input.close();
-
-	char* iter = buffer + 2;        // the first two bytes are 'B' and 'M'
-
-	BMPHEADERINFO header;
-
-	memcpy(&header, iter, sizeof(header));
-
-	// validate image OpenGL-wise
-
-	if (header.width == header.height)
-	{
-		if ((header.width & (header.width - 1)) == 0)   // if power of two
-		{
-			// image is valid, carry on
-			width = height = header.width;
-			hasAlpha = header.bpp == 32 ? true : false;
-
-			// read actual image data to buffer.
-
-			GLbyte* imagedata = (GLbyte*)(buffer + 54);
-
-			glActiveTexture(GL_TEXTURE0);
-			glGenTextures(1, &textureId);
-			glBindTexture(GL_TEXTURE_2D, textureId);
-			glTexImage2D(GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, imagedata);
-
-			// GL_MIPMAP_* not accepted for filter_flag, since using it
-			// and not actually generating any mipmaps can result in unexpected behavior 
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter_flag);
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter_flag);
-
-			delete [] buffer;
-
-			return true;
-		}
-	}
-	return false;
-
-}
+//bool texture::make_texture(const std::string& filename, GLint filter_flag) {
+//
+//	std::ifstream input(filename, std::ios::binary);
+//
+//	if (!input.is_open()) {
+//		printf("Couldn't open texture file %s\n", filename);
+//		return false;
+//	}
+//	std::size_t filesize = cpp_getfilesize(input);
+//
+//	char* buffer = new char[filesize];
+//
+//	input.read(buffer, filesize);
+//	input.close();
+//
+//	char* iter = buffer + 2;        // the first two bytes are 'B' and 'M'
+//
+//	BMPHEADERINFO header;
+//
+//	memcpy(&header, iter, sizeof(header));
+//
+//	// validate image OpenGL-wise
+//
+//	if (header.width == header.height)
+//	{
+//		if ((header.width & (header.width - 1)) == 0)   // if power of two
+//		{
+//			// image is valid, carry on
+//			width = height = header.width;
+//			hasAlpha = header.bpp == 32 ? true : false;
+//
+//			// read actual image data to buffer.
+//
+//			GLbyte* imagedata = (GLbyte*)(buffer + 54);
+//
+//			glActiveTexture(GL_TEXTURE0);
+//			glGenTextures(1, &textureId);
+//			glBindTexture(GL_TEXTURE_2D, textureId);
+//			glTexImage2D(GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, imagedata);
+//
+//			// GL_MIPMAP_* not accepted for filter_flag, since using it
+//			// and not actually generating any mipmaps can result in unexpected behavior 
+//			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter_flag);
+//			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter_flag);
+//
+//			delete [] buffer;
+//
+//			return true;
+//		}
+//	}
+//	return false;
+//
+//}
 
 
 
@@ -574,12 +575,12 @@ bool InitGL()
 
 	printf("GL_MAX_ELEMENTS_VERTICES = %d\nGL_MAX_ELEMENTS_INDICES = %d\n", max_elements_vertices, max_elements_indices);
 
-	bool gradient_texture_valid = gradient_texture.make_texture("textures/gradient.bmp", GL_LINEAR);	// solid_color_test.bmp
-	bool font_texture_valid = font_texture.make_texture("textures/dina_all.bmp", GL_NEAREST);
-	bool slider_texture_valid = slider_texture.make_texture("textures/slider.bmp", GL_NEAREST);
-	bool solid_color_texture_valid = solid_color_texture.make_texture("textures/solid_color_test.bmp", GL_LINEAR);
+	gradient_texture = Texture("textures/gradient.png", GL_LINEAR);	// solid_color_test.bmp
+	font_texture = Texture("textures/dina_all.png", GL_NEAREST);
+	slider_texture = Texture("textures/slider.png", GL_NEAREST);
+	solid_color_texture = Texture("textures/solid_color_test.png", GL_LINEAR);
 
-	if (!(gradient_texture_valid && font_texture_valid && slider_texture_valid && solid_color_texture_valid)) {
+	if (gradient_texture.bad() || font_texture.bad() || slider_texture.bad() || solid_color_texture.bad()) {
 		printf("Failure loading textures.");
 		return false;
 	}
@@ -713,7 +714,7 @@ void drawSliders() {
 	glUseProgram(passthrough_shader_program->programHandle());
 
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, slider_texture.textureId);
+	glBindTexture(GL_TEXTURE_2D, slider_texture.getId());
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sliderData.IBOid);
 	glDrawElements(GL_TRIANGLES, 11*2, GL_UNSIGNED_SHORT, NULL);
 
@@ -750,9 +751,9 @@ void drawWave() {
 	glActiveTexture(GL_TEXTURE0);
 	
 	if (wave_solidColorTextureToggle) {
-		glBindTexture(GL_TEXTURE_2D, solid_color_texture.textureId);
+		glBindTexture(GL_TEXTURE_2D, solid_color_texture.getId());
 	} else {		
-		glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
+		glBindTexture(GL_TEXTURE_2D, gradient_texture.getId());
 	}
 #ifdef _WIN32
 
@@ -825,7 +826,7 @@ void drawWaveVertexArray() {
 	glUniformMatrix4fv(uniform_modelview_loc, 1, GL_FALSE, (const GLfloat*)wave_modelview.rawData());
 		
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, gradient_texture.textureId);
+	glBindTexture(GL_TEXTURE_2D, gradient_texture.getId());
 
 	glDrawArrays(GL_TRIANGLES, 0, BUFSIZE*2-1);
 
@@ -886,7 +887,7 @@ void drawText() {
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, wpstring_holder::get_IBOid());
 	
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, font_texture.textureId);
+	glBindTexture(GL_TEXTURE_2D, font_texture.getId());
 
 	glDrawElements(GL_TRIANGLES, 6*wpstring_holder::get_static_strings_total_length(), GL_UNSIGNED_SHORT, NULL);
 		
@@ -904,7 +905,7 @@ void drawText() {
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, wpstring_holder::get_IBOid());
 	
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, font_texture.textureId);
+	glBindTexture(GL_TEXTURE_2D, font_texture.getId());
 
 	glDrawElements(GL_TRIANGLES, 6*wpstring_holder::getDynamicStringCount()*wpstring_max_length, GL_UNSIGNED_SHORT, NULL);
 

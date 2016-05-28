@@ -71,16 +71,6 @@ struct BMPHEADERINFO {
 
 };
 
-struct texture {
-
-	std::string name;
-	GLuint textureId;
-	unsigned short width;
-	unsigned short height;
-	bool hasAlpha;
-
-	bool make_texture(const std::string& filename, GLint filter_flag);
-};
 
 struct vec2 {
 	float data[2];
