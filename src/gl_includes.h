@@ -4,10 +4,10 @@
 #ifdef _WIN32
 #include <Windows.h>
 
-#include <GL\glew.h>
 #include <GL\GL.h>	// probably needless to include these after glew.h
 #include <GL\GLU.h>
-#include <GL\wglew.h> 
+
+#include "glext_loader.h"
 
 #elif __linux__
 #define GL_GLEXT_PROTOTYPES

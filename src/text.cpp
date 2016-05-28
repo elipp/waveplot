@@ -1,5 +1,7 @@
 #include "text.h"
-#define SCL_SECURE_NO_WARNINGS	// gets rid of annoying copy warning :P
+
+#pragma warning(disable:4996)
+
 static inline GLuint texcoord_index_from_char(char c){ return c == '\0' ? sizeof(glyph_texcoords)/8 + 1 : (GLuint)c - 0x20; }
 static glyph glyph_from_char(float x, float y, char c) { 
 	glyph g;

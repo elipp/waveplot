@@ -2,8 +2,7 @@
  * waveplot.cpp - main file for "waveplot"
  * 
  * While the linux version uses SDL extensively, the windows edition uses the 
- * Win32 API for window and OpenGL/device context creation. It also requires 
- * glew32.dll to work.
+ * Win32 API for window and OpenGL/device context creation. 
  */
 
 
@@ -177,13 +176,13 @@ bool texture::make_texture(const std::string& filename, GLint filter_flag) {
 
 			glActiveTexture(GL_TEXTURE0);
 			glGenTextures(1, &textureId);
-			glBindTexture( GL_TEXTURE_2D, textureId);
-			glTexImage2D( GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, imagedata);
+			glBindTexture(GL_TEXTURE_2D, textureId);
+			glTexImage2D(GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, imagedata);
 
 			// GL_MIPMAP_* not accepted for filter_flag, since using it
 			// and not actually generating any mipmaps can result in unexpected behavior 
-			glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter_flag );
-			glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter_flag );
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter_flag);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter_flag);
 
 			delete [] buffer;
 
@@ -548,17 +547,9 @@ bool InitGL()
 	
 	GLenum err;
 
-	#ifdef _WIN32
-	err = glewInit();
-
-	if (GLEW_OK != err)
-	{
-		/* Problem: glewInit failed, something is seriously wrong. */
-		printf("Error: %s\n", glewGetErrorString(err));
-		return false;
+	if (!load_GL_extensions()) {
+		return 0;
 	}
-
-	#endif
 	
 	glClearColor(1.0, 1.0, 1.0, 1.0);
 	glDisable(GL_DEPTH_TEST);
@@ -616,8 +607,8 @@ bool InitGL()
 
 	glUseProgram(passthrough_shader_program->programHandle());
 
-	Text::projection_matrix.make_proj_orthographic(0.0, WIN_W, WIN_H, 0.0, -1.0, 1.0);
-	Text::modelview_matrix.identity();
+	Text::projection_matrix = mat4::proj_ortho(0.0, WIN_W, WIN_H, 0.0, -1.0, 1.0);
+	Text::modelview_matrix = mat4::identity();
 
 
 #ifdef _WIN32
@@ -745,10 +736,10 @@ void drawWave() {
 
 #endif
 
-	wave_projection.make_proj_orthographic(-View::zoom, WIN_W+View::zoom, WIN_H+(View::zoom*aspect_ratio_recip), -(View::zoom*aspect_ratio_recip), -1.0f, 1.0f);
-	wave_modelview.identity();
-	wave_modelview(3,0) = View::wave_position(0);
-	wave_modelview(3,1) = View::wave_position(1);
+	wave_projection = mat4::proj_ortho(-View::zoom, WIN_W+View::zoom, WIN_H+(View::zoom*aspect_ratio_recip), -(View::zoom*aspect_ratio_recip), -1.0f, 1.0f);
+	wave_modelview = mat4::identity();
+	wave_modelview.assign(3, 0, View::wave_position(0));
+	wave_modelview.assign(3, 1, View::wave_position(1));
 	glUseProgram(passthrough_shader_program->programHandle());
 	glUniform1i(uniform_texture1_loc, 0);
 	glUniformMatrix4fv(uniform_projection_loc, 1, GL_FALSE, (const GLfloat*)wave_projection.rawData());
@@ -820,13 +811,13 @@ void drawWaveVertexArray() {
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(0));
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, BUFFER_OFFSET(2*sizeof(float)));
 
-	wave_projection.make_proj_orthographic(-View::zoom, WIN_W+View::zoom, WIN_H+(View::zoom/aspect_ratio), -(View::zoom/aspect_ratio), -1.0f, 1.0f);
+	wave_projection = mat4::proj_ortho(-View::zoom, WIN_W+View::zoom, WIN_H+(View::zoom/aspect_ratio), -(View::zoom/aspect_ratio), -1.0f, 1.0f);
 	//wave_projection.make_proj_perspective(-zoom, WIN_W+zoom, WIN_H+(zoom/aspect_ratio), -(zoom/aspect_ratio), 1.0f, 100.0f);
 	
 	wave_modelview.identity();
 
-	wave_modelview(3,0) = View::wave_position(0);
-	wave_modelview(3,1) = View::wave_position(1);
+	wave_modelview.assign(3, 0, View::wave_position(0));
+	wave_modelview.assign(3, 1, View::wave_position(1));
 
 	glUseProgram(passthrough_shader_program->programHandle());
 	glUniform1i(uniform_texture1_loc, 0);
@@ -1003,8 +994,11 @@ inline void control() {
 			}
 			else {
 				// with the exp term, the sensitivity now scales with zoom level
-				View::wave_view_velocity(0) += (Ddx/dt)*exp(View::zoom/290.0);	
-				View::wave_view_velocity(1) += (Ddy/dt)*exp(View::zoom/290.0);
+				float vel_x = View::wave_view_velocity(0) + (Ddx / dt)*exp(View::zoom / 290.0);
+				View::wave_view_velocity.assign(0, vel_x);
+
+				float vel_y = View::wave_view_velocity(1) + (Ddy / dt)*exp(View::zoom / 290.0);
+				View::wave_view_velocity.assign(1, vel_y);
 			}
 			// in an attempt to make the velocity vector more "sticky"
 			View::wave_view_velocity_sample1 = 0.5*(View::wave_view_velocity + View::wave_view_velocity_sample1);
@@ -1382,7 +1376,7 @@ void initializeStrings() {
 	wpstring_holder::append(wpstring(initialfps, WIN_W-50, WIN_H-20), WPS_DYNAMIC);
 	
 	char buf[16];
-	sprintf(buf, "%d", BUFSIZE);
+	sprintf_s(buf, 16, "%d", BUFSIZE);
 	const std::string buffer_size(buf);
 	const std::string bufinfostring = "Buffer size / # of samples: " + buffer_size;
 	wpstring_holder::append(wpstring(bufinfostring, 15, WIN_H-20), WPS_DYNAMIC);
@@ -1402,17 +1396,18 @@ void initializeStrings() {
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
 
-	const std::string cpu_ext_string(checkCPUCapabilities());
+	//const std::string cpu_ext_string(checkCPUCapabilities());
 
-	if (cpu_ext_string != "OK") {
-		MessageBox(NULL, cpu_ext_string.c_str(), "Fatal error", MB_OK | MB_ICONINFORMATION);
-		return EXIT_FAILURE;
-	}
+	//if (cpu_ext_string != "OK") {
+	//	MessageBox(NULL, cpu_ext_string.c_str(), "Fatal error", MB_OK | MB_ICONINFORMATION);
+	//	return EXIT_FAILURE;
+	//}
 	
 	/* allocate console for debug output (only works with printf doe) */
 
 	if(AllocConsole()) {
-		freopen("CONOUT$", "wt", stdout);
+		FILE *stream;
+		freopen_s(&stream, "CONOUT$", "wt", stdout);
 		SetConsoleTitle("debug output");
 		SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_RED);
 	}
@@ -1517,7 +1512,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 							wpstring_holder::updateDynamicString(0, "Filename: " + strippedname);
 							
 							char buf[16];
-							sprintf(buf, "%d", BUFSIZE);
+							sprintf_s(buf, 16, "%d", BUFSIZE);
 							const std::string buffer_size(buf);
 							const std::string bufinfostring = "Buffer size / # of samples: " + buffer_size;
 							
@@ -1559,7 +1554,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 				double fps = 1/t_interval;
 				char buffer[8];
-				sprintf(buffer, "%4.2f", fps);
+				sprintf_s(buffer, 8, "%4.2f", fps);
 				std::string fps_str(buffer);
 				if (wpstring_holder::getDynamicString(1) != fps_str) {
 					wpstring_holder::updateDynamicString(1, buffer);
